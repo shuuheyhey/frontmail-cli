@@ -1,0 +1,75 @@
+# Getting started
+
+This guide installs Front CLI from source, configures a token safely, and runs
+the first read-only workflow.
+
+## Requirements
+
+- Rust 1.88 or newer
+- A Front API token with access to the data you need to read
+- Linux, macOS, or Windows
+
+Front CLI is an independent community project. Front account setup, token
+creation, scopes, and product access are documented by
+[Front](https://dev.frontapp.com/reference/introduction).
+
+## Install from the repository
+
+Install the `front` binary directly from the public `develop` branch:
+
+```bash
+cargo install --locked --git https://github.com/shuuheyhey/frontmail-cli --branch develop
+front --version
+```
+
+To build a checkout instead:
+
+```bash
+git clone https://github.com/shuuheyhey/frontmail-cli.git
+cd frontmail-cli
+cargo build --locked --release
+./target/release/front --version
+```
+
+No crates.io package or prebuilt release is currently advertised.
+
+## Configure the token
+
+Export the token in your current shell:
+
+```bash
+export FRONT_API_TOKEN="your-api-token"
+export FRONT_USER="user@example.com" # optional
+```
+
+`FRONT_USER` limits the legacy `front inboxes` workflow to the inboxes of the
+matching teammate. It is not required by resource-oriented commands.
+
+For persistent secret-manager integration, use `token_command` as described in
+[Configuration](configuration.md). Do not put a token in a command argument,
+issue, log, screenshot, or repository file.
+
+## Verify access
+
+```bash
+front config
+front whoami
+```
+
+`front config` reports the config path and whether a token command is
+configured. It never resolves or prints the token. `front whoami` performs the
+first authenticated GET and returns the Front user represented by the token.
+
+## Run the first workflow
+
+```bash
+front inboxes
+front inbox <inbox-id> --limit 10
+front read <conversation-id>
+```
+
+Every API command returns a JSON envelope. Follow values in `next_actions`
+instead of reconstructing IDs or pagination parameters by hand.
+
+Next: read the [Command reference](commands.md) and
+[Output format](output-format.md).

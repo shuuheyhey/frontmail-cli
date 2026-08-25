@@ -1,0 +1,40 @@
+name: Feature request
+description: Propose an improvement to the read-only Front CLI
+title: "[Feature]: "
+labels:
+  - enhancement
+body:
+  - type: markdown
+    attributes:
+      value: >-
+        Front CLI is intentionally read-only. Mutation support requires a
+        separate approved design and explicit safety review.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: Describe the workflow or limitation, not only a proposed solution.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed behavior
+      description: Include an example command and safe, redacted output shape.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+    validations:
+      required: true
+  - type: checkboxes
+    id: boundary
+    attributes:
+      label: Read-only boundary
+      options:
+        - label: This request does not send, update, delete, upload, or download Front data.
+          required: true
+        - label: I removed tokens, customer data, and personal information.
+          required: true

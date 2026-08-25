@@ -1,0 +1,60 @@
+name: Bug report
+description: Report reproducible incorrect behavior in Front CLI
+title: "[Bug]: "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: >-
+        Remove Front tokens, customer content, personal data, and production
+        identifiers before submitting this form.
+  - type: input
+    id: version
+    attributes:
+      label: Front CLI version
+      description: Output from `front --version`.
+      placeholder: dev
+    validations:
+      required: true
+  - type: input
+    id: platform
+    attributes:
+      label: Platform
+      description: Operating system, architecture, and shell.
+      placeholder: macOS 15, arm64, zsh
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction
+      description: Provide the smallest safe sequence that reproduces the problem.
+      placeholder: |-
+        1. Run `front ...`
+        2. Inspect the JSON response
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Redacted output
+      description: Paste structured output with every token and customer value removed.
+      render: json
+    validations:
+      required: true
+  - type: checkboxes
+    id: safety
+    attributes:
+      label: Safety check
+      options:
+        - label: I removed tokens, customer data, and personal information.
+          required: true
+        - label: I searched existing issues for this problem.
+          required: true

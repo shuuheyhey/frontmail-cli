@@ -1,0 +1,5 @@
+/front
+/target
+/.worktrees
+.DS_Store
+.env

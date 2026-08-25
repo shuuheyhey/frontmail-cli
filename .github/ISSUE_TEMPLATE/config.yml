@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Front product and API support
+    url: https://dev.frontapp.com/
+    about: Use official Front resources for account, product, and API availability questions.
+  - name: Private security report
+    url: https://github.com/shuuheyhey/frontmail-cli/security/advisories/new
+    about: Report suspected vulnerabilities without public disclosure.

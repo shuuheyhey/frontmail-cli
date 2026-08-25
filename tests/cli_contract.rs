@@ -1,0 +1,216 @@
+#[cfg(not(target_os = "windows"))]
+use assert_cmd::Command;
+use assert_cmd::cargo::cargo_bin_cmd;
+use serde_json::{Value, json};
+#[cfg(not(target_os = "windows"))]
+use std::{
+    fs,
+    path::{Path, PathBuf},
+};
+use tempfile::tempdir;
+
+#[cfg(not(target_os = "windows"))]
+fn isolated_config_command(root: &Path) -> (Command, PathBuf) {
+    let mut command = cargo_bin_cmd!("front");
+    #[cfg(target_os = "macos")]
+    let (config_env, front_dir) = (
+        "HOME",
+        root.join("Library")
+            .join("Application Support")
+            .join("front"),
+    );
+    #[cfg(not(target_os = "macos"))]
+    let (config_env, front_dir) = ("XDG_CONFIG_HOME", root.join("front"));
+    command.env(config_env, root);
+    (command, front_dir.join("config.yaml"))
+}
+
+#[test]
+fn root_prints_the_agent_friendly_command_catalog() {
+    let output = cargo_bin_cmd!("front").output().expect("front should run");
+
+    assert!(output.status.success());
+    let actual: Value = serde_json::from_slice(&output.stdout).expect("valid JSON");
+    assert_eq!(actual["ok"], true);
+    assert_eq!(actual["command"], "front");
+    assert_eq!(
+        actual["result"],
+        json!({ "version": env!("CARGO_PKG_VERSION") })
+    );
+
+    let commands: Vec<&str> = actual["next_actions"]
+        .as_array()
+        .expect("next_actions array")
+        .iter()
+        .map(|action| action["command"].as_str().expect("command string"))
+        .collect();
+    assert_eq!(
+        commands,
+        [
+            "front config",
+            "front inbox [inbox-id]",
+            "front inboxes",
+            "front read <conversation-id>",
+            "front whoami",
+            "front list <resource>",
+            "front get <resource> <id>",
+            "front related <resource> <id> <relation>",
+            "front api get <path>",
+            "front completion <shell>",
+        ]
+    );
+}
+
+#[test]
+fn version_is_plain_text_for_cli_tooling_compatibility() {
+    cargo_bin_cmd!("front")
+        .arg("--version")
+        .assert()
+        .success()
+        .stdout(format!("{}\n", env!("CARGO_PKG_VERSION")));
+}
+
+#[test]
+#[cfg(not(target_os = "windows"))]
+fn config_reports_status_without_exposing_a_token() {
+    let dir = tempdir().unwrap();
+    let (mut command, config_path) = isolated_config_command(dir.path());
+    fs::create_dir_all(config_path.parent().unwrap()).unwrap();
+    fs::write(
+        config_path,
+        "token_command: [printf, secret-value]\nuser: configured@example.com\n",
+    )
+    .unwrap();
+
+    let output = command
+        .arg("config")
+        .env_remove("FRONT_API_TOKEN")
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+    let actual: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(actual["command"], "front config");
+    assert_eq!(actual["result"]["token_command"], "(configured)");
+    assert_eq!(actual["result"]["user"], "configured@example.com");
+    assert!(!String::from_utf8_lossy(&output.stdout).contains("secret-value"));
+}
+
+#[test]
+#[cfg(not(target_os = "windows"))]
+fn config_omits_token_command_when_it_is_not_configured() {
+    let dir = tempdir().unwrap();
+    let (mut command, _) = isolated_config_command(dir.path());
+    let output = command
+        .arg("config")
+        .env_remove("FRONT_API_TOKEN")
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+    let actual: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert!(actual["result"].get("token_command").is_none());
+}
+
+#[test]
+#[cfg(not(target_os = "windows"))]
+fn malformed_config_does_not_expose_a_sensitive_value() {
+    const SENSITIVE: &str = "synthetic-sensitive-value";
+    let dir = tempdir().unwrap();
+    let (mut command, config_path) = isolated_config_command(dir.path());
+    fs::create_dir_all(config_path.parent().unwrap()).unwrap();
+    fs::write(config_path, format!("token_command: {SENSITIVE}\n")).unwrap();
+
+    let output = command
+        .arg("config")
+        .env_remove("FRONT_API_TOKEN")
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.code(), Some(1));
+    assert!(!String::from_utf8_lossy(&output.stdout).contains(SENSITIVE));
+    assert!(!String::from_utf8_lossy(&output.stderr).contains(SENSITIVE));
+}
+
+#[test]
+fn unknown_command_is_a_json_cli_error() {
+    let output = cargo_bin_cmd!("front").arg("bogus").output().unwrap();
+    assert_eq!(output.status.code(), Some(1));
+    assert!(output.stderr.is_empty());
+
+    let actual: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(actual["ok"], false);
+    assert_eq!(actual["command"], "front");
+    assert_eq!(actual["error"]["code"], "CLI_ERROR");
+    assert_eq!(actual["fix"], "Run 'front' to see available commands");
+}
+
+#[test]
+fn invalid_resource_is_rejected_before_authentication() {
+    let dir = tempdir().unwrap();
+    let output = cargo_bin_cmd!("front")
+        .args(["list", "planets"])
+        .env("XDG_CONFIG_HOME", dir.path())
+        .env_remove("FRONT_API_TOKEN")
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.code(), Some(1));
+    let actual: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(actual["command"], "front list");
+    assert_eq!(actual["error"]["code"], "INVALID_INPUT");
+    assert!(
+        actual["error"]["message"]
+            .as_str()
+            .unwrap()
+            .contains("planets")
+    );
+}
+
+#[test]
+fn unsafe_api_path_is_rejected_before_authentication() {
+    let dir = tempdir().unwrap();
+    let output = cargo_bin_cmd!("front")
+        .args(["api", "get", "https://example.com/me"])
+        .env("XDG_CONFIG_HOME", dir.path())
+        .env_remove("FRONT_API_TOKEN")
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.code(), Some(1));
+    let actual: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(actual["command"], "front api get");
+    assert_eq!(actual["error"]["code"], "INVALID_INPUT");
+}
+
+#[test]
+fn malformed_query_parameter_is_rejected_before_authentication() {
+    let dir = tempdir().unwrap();
+    let output = cargo_bin_cmd!("front")
+        .args(["list", "tags", "--param", "missing-value"])
+        .env("XDG_CONFIG_HOME", dir.path())
+        .env_remove("FRONT_API_TOKEN")
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.code(), Some(1));
+    let actual: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(actual["command"], "front list");
+    assert_eq!(actual["error"]["code"], "INVALID_INPUT");
+}
+
+#[test]
+fn completion_generation_is_plain_text_and_does_not_require_authentication() {
+    let dir = tempdir().unwrap();
+    let output = cargo_bin_cmd!("front")
+        .args(["completion", "bash"])
+        .env("XDG_CONFIG_HOME", dir.path())
+        .env_remove("FRONT_API_TOKEN")
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(stdout.contains("_front"));
+    assert!(stdout.contains("complete"));
+}
