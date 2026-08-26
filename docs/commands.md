@@ -37,7 +37,7 @@ accepted the argument value.
 | `front` | Return available commands and parameters |
 | `front config` | Show selected config metadata and redacted token-command state |
 | `front doctor` | Run redacted authentication and read-scope diagnostics |
-| `front inboxes` | List all accessible inboxes or those for `FRONT_USER` |
+| `front inboxes` | List all accessible inboxes or those for the effective legacy/profile teammate |
 | `front inbox [inbox-id]` | Search conversations, optionally in one inbox |
 | `front read <conversation-id>` | Read a compact conversation and its messages |
 | `front whoami` | GET `/me` for the authenticated token |

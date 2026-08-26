@@ -34,8 +34,13 @@ Use conventional commits: `feat:`, `fix:`, `refactor:`, `test:`, `docs:`, `chore
 ## Key Patterns
 
 - All machine-readable output goes through `envelope::success` / `envelope::failure`.
-- Token resolution: `FRONT_API_TOKEN` env > `token_command` from config > error.
-- User resolution: `FRONT_USER` env > `user` from config > empty.
+- Configuration selection: explicit `--profile` > legacy selection when either
+  legacy token or user has a source > `default_profile` > the sole named
+  profile; multiple named profiles without a default require `--profile`.
+- Legacy resolution: `FRONT_API_TOKEN` > top-level `token_command` for tokens,
+  and `FRONT_USER` > top-level `user` for teammate scope.
+- Named profiles use only that profile's `token_command` and `user`; they never
+  inherit environment variables or legacy top-level credentials.
 - Teammate references use `alt:email:<email>` format.
 - API access is read-only. Do not add a write endpoint without an explicit design and approval.
 - Generic API paths remain same-origin GETs and reject absolute, traversal, and download paths.

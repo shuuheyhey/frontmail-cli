@@ -15,8 +15,9 @@ at commit `dc76701bcf90f5b98dd56e76cae438243f63b94d`, published
 The command-shape survey also reviewed
 [dedene/frontmail-cli](https://github.com/dedene/frontmail-cli/tree/6333c681808569c0d91b63e85f5b62c9cd397b45)
 at commit `6333c681808569c0d91b63e85f5b62c9cd397b45`. Its broader
-resource-oriented design informed the shortcuts below; its write operations,
-OAuth flow, keyring integration, and multiple-account support were not copied.
+resource-oriented design informed the shortcuts below. The survey was limited
+to command shape; this project's read-only boundary, credential handling, and
+named-profile behavior are documented independently.
 
 ## Coverage model
 
@@ -142,5 +143,6 @@ other write.
 Paths containing a segment equal to `download` are rejected even when the
 official method is GET. This keeps stdout JSON-only and avoids accidentally
 streaming large or sensitive attachments. OAuth setup, keyring storage,
-multiple accounts, retries, and circuit breaking are also outside the current
-scope.
+token creation, retries, and circuit breaking are also outside the current
+scope. Multiple accounts and environments are supported through isolated named
+profiles documented in [Configuration](configuration.md).

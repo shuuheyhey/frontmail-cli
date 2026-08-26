@@ -6,6 +6,11 @@ decision-makers: maintainers
 
 # Expand read coverage with declarative shortcuts and a safe GET gateway
 
+> Update (2026-08-26): isolated named-profile support was added by
+> [ADR 0005](0005-isolate-named-configuration-profiles.md). The original
+> multiple-account consequence below records the scope at the time of this
+> decision.
+
 ## Context and Problem Statement
 
 The Rust rewrite initially retained only the five GET calls needed by the

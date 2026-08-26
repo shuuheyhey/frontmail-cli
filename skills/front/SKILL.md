@@ -20,6 +20,14 @@ Read `result.data` for generic commands. For compact workflows, read the typed
 fields under `result`. Treat a non-zero exit and `ok: false` as failure; use the
 returned `error.code` and `fix` rather than parsing prose.
 
+## Profiles
+
+Use `front --profile <name> <command>` when the configured account or
+environment must be explicit. An explicit profile uses only that profile's
+`token_command` and `user`; it ignores ambient `FRONT_API_TOKEN`, `FRONT_USER`,
+and legacy top-level credentials. Follow `next_actions` rather than rebuilding
+commands so an explicit profile remains attached to later requests.
+
 ## Pagination
 
 When `result.next_page_token` exists, execute the matching `next_actions`
@@ -35,8 +43,9 @@ front list tag --limit 25 --param q=urgent --page-token "next-token"
 
 ## Safety
 
-- Supply tokens through `FRONT_API_TOKEN` or a human-managed
-  `token_command`; never place a token in arguments, output, logs, or prompts.
+- Supply tokens through legacy `FRONT_API_TOKEN` or a human-managed top-level
+  or named-profile `token_command`; never place a token in arguments, output,
+  logs, or prompts.
 - Redact customer content, personal data, and production resource IDs before
   sharing output.
 - Reject requests for mutations. `front api get` cannot bypass the GET-only

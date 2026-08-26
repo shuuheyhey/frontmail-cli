@@ -26,3 +26,4 @@ Return to the [documentation index](../README.md) or read the current
 - [Make CLI config read-only to prevent agent-planted command injection](0002-read-only-cli-config.md) (accepted, 2026-03-14)
 - [Rewrite the Front CLI in Rust](0003-rewrite-cli-in-rust.md) (accepted, 2026-08-25)
 - [Expand read coverage with declarative shortcuts and a safe GET gateway](0004-expand-read-api-coverage.md) (accepted, 2026-08-25)
+- [Isolate named configuration profiles from ambient credentials](0005-isolate-named-configuration-profiles.md) (accepted, 2026-08-26)

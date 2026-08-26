@@ -28,7 +28,7 @@ completion is generated locally and also bypasses configuration and HTTP.
 | `src/cli.rs` | Clap command tree and conversion to validated read requests |
 | `src/resources.rs` | Resource aliases, collection paths, relation allowlists, path and query validation |
 | `src/client.rs` | Authenticated typed GETs and the generic JSON GET boundary |
-| `src/config.rs` | Config loading, environment precedence, and token-command execution |
+| `src/config.rs` | Config loading, profile selection, source reporting, and token-command execution |
 | `src/commands/mod.rs` | Compact inbox and conversation workflows |
 | `src/commands/read_api.rs` | Generic JSON envelopes and pagination actions |
 | `src/models.rs` | Front response models used by compact workflows |
@@ -63,10 +63,19 @@ shortcuts use closed registries pinned in [API support](api-support.md).
 
 ## Configuration security
 
-Tokens are resolved into `secrecy::SecretString`. Precedence is
-`FRONT_API_TOKEN`, then the config file's `token_command`. Token commands are
-argv arrays executed directly without an implicit shell. The value is exposed
-only when building the bearer-authenticated request.
+Configuration selection happens before token resolution. An explicit
+`--profile` selects only that profile's `token_command` and `user`, ignoring
+`FRONT_API_TOKEN`, `FRONT_USER`, and legacy top-level credentials. Without an
+explicit profile, the CLI uses legacy selection when either legacy token or
+user has a source, then `default_profile`, then the sole named profile. Multiple
+profiles without a default require explicit selection.
+
+Within legacy selection, token precedence is non-empty `FRONT_API_TOKEN`, then
+the top-level `token_command`; teammate precedence is non-empty `FRONT_USER`,
+then the top-level `user`. Named profiles do not inherit either environment
+variable or top-level value. Tokens are resolved into `secrecy::SecretString`.
+Token commands are argv arrays executed directly without an implicit shell,
+and the value is exposed only when building the bearer-authenticated request.
 
 Malformed YAML is reported with the config path but without the parser's raw
 message or source chain. This keeps token-command contents and other config
@@ -103,7 +112,8 @@ Long-lived decisions are recorded in [Architecture Decision Records](decisions/R
 
 - read-only config and token-command security;
 - the Rust rewrite and handwritten client;
-- declarative read shortcuts plus a safe generic GET gateway.
+- declarative read shortcuts plus a safe generic GET gateway; and
+- isolated named-profile selection for multiple accounts and environments.
 
 Historical design specifications and implementation plans are retained under
 `docs/development/` for maintainers; they are not user documentation.
