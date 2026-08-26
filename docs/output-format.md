@@ -130,11 +130,15 @@ Continuation metadata also preserves whether `limit` came from structured
 `--limit` or repeatable `--param`. A structured limit remains `--limit.value`;
 a passthrough value, including a non-numeric value, remains in
 `--param.values`. Supported structured resource pagination emits the
-replacement token as `--page-token.value`. Generic API GETs and resources that
-do not support the structured page-token flag instead replace any stale
-passthrough token with exactly one `page_token=<new-token>` entry in
-`--param.values`. The generated action can therefore be replayed through the
-normal CLI parser without converting passthrough values into structured flags.
+replacement token as `--page-token.value`; resources without that capability
+use exactly one `page_token=<new-token>` entry in `--param.values`. For generic
+API GETs, an original structured page token retains `--page-token.value`, while
+a passthrough-only token retains `--param.values`. Structured origin wins when
+both are present, removing all stale passthrough tokens, and no original token
+uses the established structured action shape. The generated action can
+therefore be replayed through the normal CLI parser. When structured origin
+wins, request preparation places the replacement token after every retained
+passthrough query value.
 
 ### Projected and bounded results
 

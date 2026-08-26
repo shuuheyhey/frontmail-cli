@@ -119,11 +119,18 @@ front api get /accounts/custom_fields --param limit=50
 - The entire API response is retained under `result.data`.
 - When `_results` is an array, `result.count` reports the number returned.
 - When `_pagination.next` contains a page token, the token is exposed in the
-  result and in a structured `next_actions` entry.
-- The next action emits the effective limit as `--limit.value`, preserves all
-  non-pagination query pairs under repeatable `--param.values` (including a
-  single item), and replaces any previous page token with the new
-  `--page-token.value`.
+  result and in a replayable `next_actions` entry.
+- The next action keeps structured limits under `--limit.value` and
+  passthrough limits under repeatable `--param.values`, preserving arbitrary
+  repeated parameter order and values.
+- Resource commands emit the replacement under `--page-token.value` when the
+  resource supports that structured flag; otherwise they replace stale
+  passthrough tokens with one `page_token=<new-token>` value under `--param`.
+- For `api get`, structured page-token origin wins over passthrough origin. A
+  passthrough-only token stays under `--param`, while a structured token or no
+  previous token uses `--page-token`. Replay removes stale duplicates and
+  places the replacement token after retained passthrough pairs when
+  structured origin wins.
 
 ## Deliberate gaps
 

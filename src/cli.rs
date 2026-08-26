@@ -229,7 +229,7 @@ pub fn prepare_read_request_with_action_context(
                 command: command.clone(),
                 segments: validate_api_path(&args.path)?,
                 query: query.pairs,
-                pagination: Some(PaginationContext::passthrough(command, query.continuation)),
+                pagination: Some(PaginationContext::api_get(command, query.continuation)),
                 action_context: action_context.clone(),
                 output: (&args.output).into(),
             }
@@ -241,11 +241,11 @@ pub fn prepare_read_request_with_action_context(
             let capabilities = resource.collection_query_capabilities();
             let command = format!("front list {}", resource.name());
             let query = build_query(&args.query)?;
-            let pagination = if capabilities.page_token {
-                PaginationContext::structured(command.clone(), query.continuation)
-            } else {
-                PaginationContext::passthrough(command.clone(), query.continuation)
-            };
+            let pagination = PaginationContext::resource(
+                command.clone(),
+                query.continuation,
+                capabilities.page_token,
+            );
             ReadRequest {
                 command,
                 segments,
@@ -279,7 +279,11 @@ pub fn prepare_read_request_with_action_context(
                 command: command.clone(),
                 segments: related_segments(resource, &args.id, &args.relation)?,
                 query: query.pairs,
-                pagination: Some(PaginationContext::structured(command, query.continuation)),
+                pagination: Some(PaginationContext::resource(
+                    command,
+                    query.continuation,
+                    true,
+                )),
                 action_context: action_context.clone(),
                 output: (&args.output).into(),
             }

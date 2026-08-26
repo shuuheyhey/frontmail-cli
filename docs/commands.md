@@ -206,11 +206,14 @@ flag. The compact `inboxes`, `inbox`, and `read` navigation and refresh actions
 use the same rule.
 
 Structured `--limit` values stay structured, while a `limit=...` supplied with
-`--param` remains a repeated passthrough value. For `api get` and resources
-without structured page-token support, continuation replaces stale
-passthrough page tokens with one `page_token=<new-token>` in `--param.values`.
-Resources with structured pagination use `--page-token`. Generated
-continuations remain valid input to the normal CLI parser. See
+`--param` remains a repeated passthrough value. For `api get`, a structured
+`--page-token` origin remains structured; a passthrough-only
+`--param page_token=...` origin remains passthrough. Structured wins when both
+origins are present, and an API request without an old token uses the
+structured `--page-token` action shape. Stale passthrough tokens are removed in
+the structured cases. Resource commands use `--page-token` when their CLI
+capability supports it and `--param page_token=<new-token>` otherwise.
+Generated continuations remain valid input to the normal CLI parser. See
 [Output format](output-format.md) for the complete action schema.
 
 ## Shell completion

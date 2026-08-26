@@ -37,37 +37,96 @@ pub enum ContinuationQueryParam {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum NextPageParameter {
+enum ContinuationPageTokenStyle {
     Structured,
     Passthrough,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum ContinuationCommandKind {
+    ApiGet,
+    Resource { structured_page_token: bool },
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct PaginationContext {
     command: String,
     query: Vec<ContinuationQueryParam>,
-    next_page_parameter: NextPageParameter,
+    page_token_style: ContinuationPageTokenStyle,
 }
 
 impl PaginationContext {
-    pub fn structured(command: impl Into<String>, query: Vec<ContinuationQueryParam>) -> Self {
-        Self {
-            command: command.into(),
+    pub fn api_get(command: impl Into<String>, query: Vec<ContinuationQueryParam>) -> Self {
+        Self::for_command(command, query, ContinuationCommandKind::ApiGet)
+    }
+
+    pub fn resource(
+        command: impl Into<String>,
+        query: Vec<ContinuationQueryParam>,
+        structured_page_token: bool,
+    ) -> Self {
+        Self::for_command(
+            command,
             query,
-            next_page_parameter: NextPageParameter::Structured,
-        }
+            ContinuationCommandKind::Resource {
+                structured_page_token,
+            },
+        )
+    }
+
+    pub fn structured(command: impl Into<String>, query: Vec<ContinuationQueryParam>) -> Self {
+        Self::resource(command, query, true)
     }
 
     pub fn passthrough(command: impl Into<String>, query: Vec<ContinuationQueryParam>) -> Self {
+        Self::resource(command, query, false)
+    }
+
+    fn for_command(
+        command: impl Into<String>,
+        query: Vec<ContinuationQueryParam>,
+        kind: ContinuationCommandKind,
+    ) -> Self {
+        let page_token_style = continuation_page_token_style(kind, &query);
         Self {
             command: command.into(),
             query,
-            next_page_parameter: NextPageParameter::Passthrough,
+            page_token_style,
         }
     }
 
     pub fn command(&self) -> &str {
         &self.command
+    }
+}
+
+fn continuation_page_token_style(
+    kind: ContinuationCommandKind,
+    query: &[ContinuationQueryParam],
+) -> ContinuationPageTokenStyle {
+    match kind {
+        ContinuationCommandKind::Resource {
+            structured_page_token: true,
+        } => ContinuationPageTokenStyle::Structured,
+        ContinuationCommandKind::Resource {
+            structured_page_token: false,
+        } => ContinuationPageTokenStyle::Passthrough,
+        ContinuationCommandKind::ApiGet => {
+            if query.iter().any(|parameter| {
+                matches!(parameter, ContinuationQueryParam::StructuredPageToken(_))
+            }) {
+                ContinuationPageTokenStyle::Structured
+            } else if query.iter().any(|parameter| {
+                matches!(
+                    parameter,
+                    ContinuationQueryParam::Passthrough(name, _) if name == "page_token"
+                )
+            }) {
+                ContinuationPageTokenStyle::Passthrough
+            } else {
+                ContinuationPageTokenStyle::Structured
+            }
+        }
     }
 }
 
@@ -288,7 +347,7 @@ fn pagination_params(
     for parameter in &pagination.query {
         match parameter {
             ContinuationQueryParam::Passthrough(name, _) if name == "page_token" => {
-                if pagination.next_page_parameter == NextPageParameter::Passthrough
+                if pagination.page_token_style == ContinuationPageTokenStyle::Passthrough
                     && !replacement_inserted
                 {
                     repeated.push(format!("page_token={next_token}"));
@@ -304,7 +363,9 @@ fn pagination_params(
             ContinuationQueryParam::StructuredPageToken(_) => {}
         }
     }
-    if pagination.next_page_parameter == NextPageParameter::Passthrough && !replacement_inserted {
+    if pagination.page_token_style == ContinuationPageTokenStyle::Passthrough
+        && !replacement_inserted
+    {
         repeated.push(format!("page_token={next_token}"));
     }
 
@@ -356,7 +417,7 @@ fn pagination_params(
             },
         );
     }
-    if pagination.next_page_parameter == NextPageParameter::Structured {
+    if pagination.page_token_style == ContinuationPageTokenStyle::Structured {
         params.insert(
             "--page-token".into(),
             ParamSpec {

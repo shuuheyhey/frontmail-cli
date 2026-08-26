@@ -41,7 +41,8 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
   selection hidden.
 - Preserve structured versus passthrough pagination origins so continuation
   actions remain parseable, replace stale page tokens once, and retain repeated
-  parameter order and values.
+  parameter order and values, including structured-origin precedence for
+  generic API reads.
 - Follow up to three validated HTTP 301 redirects while preserving the
   configured Front API origin.
 - Use a message's `from` recipient as the sender when its author is absent.

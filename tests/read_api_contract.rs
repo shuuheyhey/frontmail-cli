@@ -160,10 +160,10 @@ async fn api_continuation_keeps_non_numeric_passthrough_limit_parseable() {
 
     assert_eq!(
         action["params"]["--param"]["values"],
-        serde_json::json!(["limit=unbounded", "q=hello world", "page_token=next token"])
+        serde_json::json!(["limit=unbounded", "q=hello world"])
     );
     assert!(action["params"].get("--limit").is_none());
-    assert!(action["params"].get("--page-token").is_none());
+    assert_eq!(action["params"]["--page-token"]["value"], "next token");
     assert_eq!(action["params"]["--profile"]["value"], "work");
     assert!(action["params"]["--count-only"].get("value").is_none());
     assert_eq!(
@@ -172,6 +172,109 @@ async fn api_continuation_keeps_non_numeric_passthrough_limit_parseable() {
             ("limit".into(), "unbounded".into()),
             ("q".into(), "hello world".into()),
             ("page_token".into(), "next token".into()),
+        ]
+    );
+}
+
+#[tokio::test]
+async fn api_continuation_keeps_passthrough_page_token_passthrough() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/tags"))
+        .and(query_param("page_token", "stale"))
+        .and(query_param("q", "first"))
+        .and(query_param("q", "second"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "_results": [],
+            "_pagination": {
+                "next": "https://api2.frontapp.com/tags?page_token=fresh"
+            }
+        })))
+        .mount(&server)
+        .await;
+    let request = prepared_request(&[
+        "front",
+        "api",
+        "get",
+        "/tags",
+        "--param",
+        "page_token=stale",
+        "--param",
+        "q=first",
+        "--param",
+        "q=second",
+        "--keys-only",
+    ]);
+
+    let output = execute_read(&client(&server), request).await.unwrap();
+    let actual: Value = serde_json::from_str(&output).unwrap();
+    let action = &actual["next_actions"][0];
+    let continued = prepare_continuation(action);
+
+    assert_eq!(
+        action["params"]["--param"]["values"],
+        serde_json::json!(["page_token=fresh", "q=first", "q=second"])
+    );
+    assert!(action["params"].get("--page-token").is_none());
+    assert!(action["params"]["--keys-only"].get("value").is_none());
+    assert_eq!(
+        continued.query,
+        [
+            ("page_token".into(), "fresh".into()),
+            ("q".into(), "first".into()),
+            ("q".into(), "second".into()),
+        ]
+    );
+}
+
+#[tokio::test]
+async fn api_continuation_keeps_structured_page_token_structured() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/tags"))
+        .and(query_param("limit", "2"))
+        .and(query_param("page_token", "stale"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "_results": [],
+            "_pagination": {
+                "next": "https://api2.frontapp.com/tags?page_token=fresh"
+            }
+        })))
+        .mount(&server)
+        .await;
+    let request = prepared_request(&[
+        "front",
+        "api",
+        "get",
+        "/tags",
+        "--limit",
+        "2",
+        "--page-token",
+        "stale",
+        "--profile",
+        "work",
+        "--fields",
+        "id,name",
+        "--max-items",
+        "1",
+    ]);
+
+    let output = execute_read(&client(&server), request).await.unwrap();
+    let actual: Value = serde_json::from_str(&output).unwrap();
+    let action = &actual["next_actions"][0];
+    let continued = prepare_continuation(action);
+
+    assert!(action["params"].get("--param").is_none());
+    assert_eq!(action["params"]["--limit"]["value"], "2");
+    assert_eq!(action["params"]["--page-token"]["value"], "fresh");
+    assert_eq!(action["params"]["--profile"]["value"], "work");
+    assert_eq!(action["params"]["--fields"]["value"], "id,name");
+    assert_eq!(action["params"]["--max-items"]["value"], "1");
+    assert_eq!(
+        continued.query,
+        [
+            ("limit".into(), "2".into()),
+            ("page_token".into(), "fresh".into()),
         ]
     );
 }
@@ -243,6 +346,8 @@ async fn api_continuation_preserves_structured_and_passthrough_limit_precedence(
         .and(query_param("limit", "2"))
         .and(query_param("page_token", "passthrough-old"))
         .and(query_param("page_token", "structured-old"))
+        .and(query_param("q", "first"))
+        .and(query_param("q", "second"))
         .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
             "_results": [],
             "_pagination": {
@@ -260,6 +365,10 @@ async fn api_continuation_preserves_structured_and_passthrough_limit_precedence(
         "limit=passthrough",
         "--param",
         "page_token=passthrough-old",
+        "--param",
+        "q=first",
+        "--param",
+        "q=second",
         "--limit",
         "2",
         "--page-token",
@@ -274,15 +383,17 @@ async fn api_continuation_preserves_structured_and_passthrough_limit_precedence(
     assert_eq!(action["params"]["--limit"]["value"], "2");
     assert_eq!(
         action["params"]["--param"]["values"],
-        serde_json::json!(["limit=passthrough", "page_token=fresh"])
+        serde_json::json!(["limit=passthrough", "q=first", "q=second"])
     );
-    assert!(action["params"].get("--page-token").is_none());
+    assert_eq!(action["params"]["--page-token"]["value"], "fresh");
     assert_eq!(
         continued.query,
         [
             ("limit".into(), "passthrough".into()),
-            ("page_token".into(), "fresh".into()),
+            ("q".into(), "first".into()),
+            ("q".into(), "second".into()),
             ("limit".into(), "2".into()),
+            ("page_token".into(), "fresh".into()),
         ]
     );
 }
