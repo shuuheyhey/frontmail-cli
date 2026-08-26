@@ -1,6 +1,12 @@
+use clap::Parser;
 use frontmail_cli::{
+    cli::{Cli, prepare_read_request_with_profile},
     client::FrontClient,
-    commands::{OutputOptions, ReadRequest, execute_read, whoami_json},
+    commands::{
+        ContinuationQueryParam, OutputOptions, PaginationContext, ReadRequest, execute_read,
+        whoami_json,
+    },
+    envelope::ActionContext,
 };
 use secrecy::SecretString;
 use serde_json::Value;
@@ -16,6 +22,40 @@ fn client(server: &MockServer) -> FrontClient {
         "front/test",
     )
     .unwrap()
+}
+
+fn prepare_continuation(action: &Value) -> ReadRequest {
+    let mut args: Vec<String> = action["command"]
+        .as_str()
+        .unwrap()
+        .split_whitespace()
+        .map(str::to_owned)
+        .collect();
+    for (name, spec) in action["params"].as_object().unwrap() {
+        if let Some(value) = spec.get("value").and_then(Value::as_str) {
+            args.push(name.clone());
+            args.push(value.into());
+        } else if let Some(values) = spec.get("values").and_then(Value::as_array) {
+            for value in values {
+                args.push(name.clone());
+                args.push(value.as_str().unwrap().into());
+            }
+        } else {
+            args.push(name.clone());
+        }
+    }
+    let cli = Cli::try_parse_from(&args)
+        .unwrap_or_else(|error| panic!("continuation did not parse: {args:?}: {error}"));
+    prepare_read_request_with_profile(cli.command.as_ref().unwrap(), cli.profile.as_deref())
+        .unwrap()
+        .unwrap()
+}
+
+fn prepared_request(args: &[&str]) -> ReadRequest {
+    let cli = Cli::try_parse_from(args).unwrap();
+    prepare_read_request_with_profile(cli.command.as_ref().unwrap(), cli.profile.as_deref())
+        .unwrap()
+        .unwrap()
 }
 
 #[tokio::test]
@@ -48,8 +88,16 @@ async fn collection_envelope_preserves_data_and_builds_pagination_action() {
                 ("limit".into(), "2".into()),
                 ("page_token".into(), "current".into()),
             ],
-            pagination_command: Some("front list tags".into()),
-            profile: None,
+            pagination: Some(PaginationContext::structured(
+                "front list tags",
+                vec![
+                    ContinuationQueryParam::Passthrough("q".into(), "alice smith".into()),
+                    ContinuationQueryParam::Passthrough("sort_by".into(), "created_at".into()),
+                    ContinuationQueryParam::StructuredLimit(2),
+                    ContinuationQueryParam::StructuredPageToken("current".into()),
+                ],
+            )),
+            action_context: ActionContext::default(),
             output: Default::default(),
         },
     )
@@ -77,6 +125,169 @@ async fn collection_envelope_preserves_data_and_builds_pagination_action() {
 }
 
 #[tokio::test]
+async fn api_continuation_keeps_non_numeric_passthrough_limit_parseable() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/tags"))
+        .and(query_param("limit", "unbounded"))
+        .and(query_param("q", "hello world"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "_results": [],
+            "_pagination": {
+                "next": "https://api2.frontapp.com/tags?page_token=next%20token"
+            }
+        })))
+        .mount(&server)
+        .await;
+    let request = prepared_request(&[
+        "front",
+        "api",
+        "get",
+        "/tags",
+        "--param",
+        "limit=unbounded",
+        "--param",
+        "q=hello world",
+        "--profile",
+        "work",
+        "--count-only",
+    ]);
+
+    let output = execute_read(&client(&server), request).await.unwrap();
+    let actual: Value = serde_json::from_str(&output).unwrap();
+    let action = &actual["next_actions"][0];
+    let continued = prepare_continuation(action);
+
+    assert_eq!(
+        action["params"]["--param"]["values"],
+        serde_json::json!(["limit=unbounded", "q=hello world", "page_token=next token"])
+    );
+    assert!(action["params"].get("--limit").is_none());
+    assert!(action["params"].get("--page-token").is_none());
+    assert_eq!(action["params"]["--profile"]["value"], "work");
+    assert!(action["params"]["--count-only"].get("value").is_none());
+    assert_eq!(
+        continued.query,
+        [
+            ("limit".into(), "unbounded".into()),
+            ("q".into(), "hello world".into()),
+            ("page_token".into(), "next token".into()),
+        ]
+    );
+}
+
+#[tokio::test]
+async fn non_pagination_resource_continuation_replaces_passthrough_page_token_in_place() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/inboxes"))
+        .and(query_param("limit", "unbounded"))
+        .and(query_param("page_token", "stale"))
+        .and(query_param("page_token", "older"))
+        .and(query_param("q", "first"))
+        .and(query_param("q", "second"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "_results": [],
+            "_pagination": {
+                "next": "https://api2.frontapp.com/inboxes?page_token=fresh"
+            }
+        })))
+        .mount(&server)
+        .await;
+    let request = prepared_request(&[
+        "front",
+        "list",
+        "inboxes",
+        "--param",
+        "limit=unbounded",
+        "--param",
+        "page_token=stale",
+        "--param",
+        "page_token=older",
+        "--param",
+        "q=first",
+        "--param",
+        "q=second",
+        "--keys-only",
+    ]);
+
+    let output = execute_read(&client(&server), request).await.unwrap();
+    let actual: Value = serde_json::from_str(&output).unwrap();
+    let action = &actual["next_actions"][0];
+    let continued = prepare_continuation(action);
+
+    assert_eq!(
+        action["params"]["--param"]["values"],
+        serde_json::json!(["limit=unbounded", "page_token=fresh", "q=first", "q=second"])
+    );
+    assert!(action["params"].get("--limit").is_none());
+    assert!(action["params"].get("--page-token").is_none());
+    assert!(action["params"]["--keys-only"].get("value").is_none());
+    assert_eq!(
+        continued.query,
+        [
+            ("limit".into(), "unbounded".into()),
+            ("page_token".into(), "fresh".into()),
+            ("q".into(), "first".into()),
+            ("q".into(), "second".into()),
+        ]
+    );
+}
+
+#[tokio::test]
+async fn api_continuation_preserves_structured_and_passthrough_limit_precedence() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/tags"))
+        .and(query_param("limit", "passthrough"))
+        .and(query_param("limit", "2"))
+        .and(query_param("page_token", "passthrough-old"))
+        .and(query_param("page_token", "structured-old"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "_results": [],
+            "_pagination": {
+                "next": "https://api2.frontapp.com/tags?page_token=fresh"
+            }
+        })))
+        .mount(&server)
+        .await;
+    let request = prepared_request(&[
+        "front",
+        "api",
+        "get",
+        "/tags",
+        "--param",
+        "limit=passthrough",
+        "--param",
+        "page_token=passthrough-old",
+        "--limit",
+        "2",
+        "--page-token",
+        "structured-old",
+    ]);
+
+    let output = execute_read(&client(&server), request).await.unwrap();
+    let actual: Value = serde_json::from_str(&output).unwrap();
+    let action = &actual["next_actions"][0];
+    let continued = prepare_continuation(action);
+
+    assert_eq!(action["params"]["--limit"]["value"], "2");
+    assert_eq!(
+        action["params"]["--param"]["values"],
+        serde_json::json!(["limit=passthrough", "page_token=fresh"])
+    );
+    assert!(action["params"].get("--page-token").is_none());
+    assert_eq!(
+        continued.query,
+        [
+            ("limit".into(), "passthrough".into()),
+            ("page_token".into(), "fresh".into()),
+            ("limit".into(), "2".into()),
+        ]
+    );
+}
+
+#[tokio::test]
 async fn item_envelope_omits_collection_metadata() {
     let server = MockServer::start().await;
     Mock::given(method("GET"))
@@ -93,8 +304,8 @@ async fn item_envelope_omits_collection_metadata() {
             command: "front get tag tag_1".into(),
             segments: vec!["tags".into(), "tag_1".into()],
             query: vec![],
-            pagination_command: None,
-            profile: None,
+            pagination: None,
+            action_context: ActionContext::default(),
             output: Default::default(),
         },
     )
@@ -121,8 +332,8 @@ async fn execute_body(body: Value, output: OutputOptions) -> Value {
             command: "front api get /example".into(),
             segments: vec!["example".into()],
             query: vec![],
-            pagination_command: None,
-            profile: None,
+            pagination: None,
+            action_context: ActionContext::default(),
             output,
         },
     )
@@ -471,8 +682,8 @@ async fn pagination_actions_preserve_active_output_flags() {
             command: "front list tag".into(),
             segments: vec!["tags".into()],
             query: vec![],
-            pagination_command: Some("front list tag".into()),
-            profile: None,
+            pagination: Some(PaginationContext::structured("front list tag", vec![])),
+            action_context: ActionContext::default(),
             output: OutputOptions {
                 fields: vec!["id".into(), "name".into()],
                 max_items: Some(1),
@@ -519,8 +730,14 @@ async fn pagination_action_preserves_profile_limit_and_local_output_controls() {
                 ("limit".into(), "100".into()),
                 ("page_token".into(), "current".into()),
             ],
-            pagination_command: Some("front list tag".into()),
-            profile: Some("work".into()),
+            pagination: Some(PaginationContext::structured(
+                "front list tag",
+                vec![
+                    ContinuationQueryParam::StructuredLimit(100),
+                    ContinuationQueryParam::StructuredPageToken("current".into()),
+                ],
+            )),
+            action_context: ActionContext::from_explicit_profile(Some("work")),
             output: OutputOptions {
                 fields: vec!["id".into(), "name".into()],
                 max_items: Some(2),
@@ -561,8 +778,8 @@ async fn pagination_action_preserves_count_only_as_a_bare_switch() {
             command: "front list tag".into(),
             segments: vec!["tags".into()],
             query: vec![],
-            pagination_command: Some("front list tag".into()),
-            profile: None,
+            pagination: Some(PaginationContext::structured("front list tag", vec![])),
+            action_context: ActionContext::default(),
             output: OutputOptions {
                 count_only: true,
                 ..OutputOptions::default()

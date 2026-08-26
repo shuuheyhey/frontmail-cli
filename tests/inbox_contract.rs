@@ -1,6 +1,10 @@
 use frontmail_cli::{
     client::FrontClient,
-    commands::{InboxOptions, build_search_query, inbox_json, inboxes_json},
+    commands::{
+        InboxOptions, build_search_query, inbox_json, inbox_json_with_context, inboxes_json,
+        inboxes_json_with_context,
+    },
+    envelope::ActionContext,
 };
 use secrecy::SecretString;
 use serde_json::Value;
@@ -16,6 +20,21 @@ fn client(server: &MockServer) -> FrontClient {
         "front/test",
     )
     .unwrap()
+}
+
+fn assert_action_profiles(actual: &Value, expected: Option<&str>) {
+    let actions = actual["next_actions"].as_array().unwrap();
+    assert!(!actions.is_empty());
+    for action in actions {
+        assert_eq!(
+            action["params"]
+                .get("--profile")
+                .and_then(|profile| profile["value"].as_str()),
+            expected,
+            "{}",
+            action["command"]
+        );
+    }
 }
 
 #[test]
@@ -125,4 +144,85 @@ async fn inbox_maps_conversations_and_exposes_the_next_page_token() {
         actual["next_actions"][1]["params"]["conversation-id"]["value"],
         "cnv_1"
     );
+}
+
+#[tokio::test]
+async fn inboxes_actions_preserve_only_the_explicit_profile() {
+    const PROFILE: &str = "work";
+    const PROFILE_USER: &str = "profile-user-must-not-enter-actions@example.com";
+    const PROFILE_COMMAND_ARG: &str = "profile-command-arg-must-not-enter-actions";
+    const PROFILE_TOKEN: &str = "test-token";
+
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path(format!("/teammates/alt:email:{PROFILE_USER}/inboxes")))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "_results": [{"id": "inb_1", "name": "Support"}]
+        })))
+        .mount(&server)
+        .await;
+
+    let explicit = inboxes_json_with_context(
+        &client(&server),
+        PROFILE_USER,
+        &ActionContext::from_explicit_profile(Some(PROFILE)),
+    )
+    .await
+    .unwrap();
+    let explicit: Value = serde_json::from_str(&explicit).unwrap();
+    assert_action_profiles(&explicit, Some(PROFILE));
+    let actions = explicit["next_actions"].to_string();
+    for credential in [PROFILE_USER, PROFILE_COMMAND_ARG, PROFILE_TOKEN] {
+        assert!(!actions.contains(credential), "leaked {credential:?}");
+    }
+
+    let implicit =
+        inboxes_json_with_context(&client(&server), PROFILE_USER, &ActionContext::default())
+            .await
+            .unwrap();
+    let implicit: Value = serde_json::from_str(&implicit).unwrap();
+    assert_action_profiles(&implicit, None);
+}
+
+#[tokio::test]
+async fn inbox_actions_preserve_only_the_explicit_profile() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path(
+            "/conversations/search/is:open%20is:unassigned%20inbox:inb_1",
+        ))
+        .and(query_param("limit", "25"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "_results": [{
+                "id": "cnv_1",
+                "subject": "Need help",
+                "status": "open",
+                "recipient": {"handle": "customer@example.com"}
+            }],
+            "_pagination": {
+                "next": "https://api2.frontapp.com/conversations?page_token=next"
+            }
+        })))
+        .mount(&server)
+        .await;
+    let options = InboxOptions {
+        inbox_id: Some("inb_1".into()),
+        ..InboxOptions::default()
+    };
+
+    let explicit = inbox_json_with_context(
+        &client(&server),
+        &options,
+        &ActionContext::from_explicit_profile(Some("work")),
+    )
+    .await
+    .unwrap();
+    let explicit: Value = serde_json::from_str(&explicit).unwrap();
+    assert_action_profiles(&explicit, Some("work"));
+
+    let implicit = inbox_json_with_context(&client(&server), &options, &ActionContext::default())
+        .await
+        .unwrap();
+    let implicit: Value = serde_json::from_str(&implicit).unwrap();
+    assert_action_profiles(&implicit, None);
 }

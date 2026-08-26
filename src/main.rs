@@ -2,13 +2,14 @@ use clap::{CommandFactory, Parser, error::ErrorKind};
 use clap_complete::generate;
 use frontmail_cli::{
     VERSION,
-    cli::{Cli, Commands, prepare_read_request_with_profile},
+    cli::{Cli, Commands, prepare_read_request_with_action_context},
     client::{ClientError, FrontClient, classify_http},
     commands::{
         CommandError, DoctorAuthenticationError, InboxOptions, ReadRequest, doctor_json,
-        execute_read, inbox_json, inboxes_json, read_json,
+        execute_read, inbox_json_with_context, inboxes_json_with_context, read_json_with_context,
     },
-    config, envelope,
+    config,
+    envelope::{self, ActionContext},
     resources::ResourceError,
 };
 use reqwest::StatusCode;
@@ -77,7 +78,9 @@ async fn main() {
             );
         }
         Some(command) => {
-            let request = match prepare_read_request_with_profile(&command, profile.as_deref()) {
+            let action_context = ActionContext::from_explicit_profile(profile.as_deref());
+            let request = match prepare_read_request_with_action_context(&command, &action_context)
+            {
                 Ok(request) => request,
                 Err(error) => {
                     let command = match &error {
@@ -98,7 +101,7 @@ async fn main() {
             run_api_command(
                 command,
                 request,
-                profile.as_deref(),
+                action_context,
                 query_was_set,
                 limit_was_set,
             )
@@ -110,7 +113,7 @@ async fn main() {
 async fn run_api_command(
     command: Commands,
     request: Option<ReadRequest>,
-    profile: Option<&str>,
+    action_context: ActionContext,
     query_was_set: bool,
     limit_was_set: bool,
 ) {
@@ -132,18 +135,19 @@ async fn run_api_command(
         }
     };
     let env = config::current_env();
-    let selected = match config::select_effective_config(&loaded, &env, profile) {
-        Ok(selected) => selected,
-        Err(error) => {
-            print_failure(
-                &requested_command,
-                error.to_string(),
-                "CONFIG_ERROR",
-                "Choose a configured profile or update default_profile",
-            );
-            std::process::exit(1);
-        }
-    };
+    let selected =
+        match config::select_effective_config(&loaded, &env, action_context.explicit_profile()) {
+            Ok(selected) => selected,
+            Err(error) => {
+                print_failure(
+                    &requested_command,
+                    error.to_string(),
+                    "CONFIG_ERROR",
+                    "Choose a configured profile or update default_profile",
+                );
+                std::process::exit(1);
+            }
+        };
     let auth_context = selected.auth_context();
     let token = match selected.resolve_token() {
         Ok(token) => token,
@@ -183,7 +187,7 @@ async fn run_api_command(
             ),
             Commands::Inboxes => (
                 "front inboxes".into(),
-                inboxes_json(&client, selected.user()).await,
+                inboxes_json_with_context(&client, selected.user(), &action_context).await,
             ),
             Commands::Inbox(args) => {
                 let options = InboxOptions {
@@ -198,11 +202,14 @@ async fn run_api_command(
                     limit_was_set,
                     page_token: args.page_token,
                 };
-                ("front inbox".into(), inbox_json(&client, &options).await)
+                (
+                    "front inbox".into(),
+                    inbox_json_with_context(&client, &options, &action_context).await,
+                )
             }
             Commands::Read(args) => (
                 "front read".into(),
-                read_json(&client, &args.conversation_id).await,
+                read_json_with_context(&client, &args.conversation_id, &action_context).await,
             ),
             Commands::Config
             | Commands::Whoami

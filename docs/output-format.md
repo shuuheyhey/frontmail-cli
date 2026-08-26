@@ -47,13 +47,19 @@ for compatibility with normal CLI tooling.
 
 ## Configuration result
 
-`front config` returns a success envelope whose `result` includes the config
-`path`, the effective `user`, and non-secret `token_source` and `user_source`
-fields. `token_source` is one of `environment`, `token_command`, or `none`.
-`user_source` is one of `environment`, `config`, or `none`. When a
+`front config` always returns the config `path` plus non-secret `token_source`
+and `user_source` fields. `token_source` is one of `environment`,
+`token_command`, or `none`; `user_source` is one of `environment`, `config`, or
+`none`.
+
+For legacy selection, `result.user` contains the effective user when one is
+configured, and the profile fields are omitted. For named-profile selection,
+`result.profile` contains the selected profile name,
+`result.profile_source` is `explicit`, `default`, or `single`, and
+`result.user` is omitted even when that profile configures a user. When a
 `token_command` is configured, the optional `result.token_command` field is the
-literal `(configured)`; the executable, its arguments, and token values are
-never included.
+literal `(configured)`; the executable, its arguments, user values, and token
+values are never included.
 
 ## Doctor result
 
@@ -117,7 +123,18 @@ switch. Pagination actions preserve filters, arbitrary query parameters, and
 active generic output controls. When the original command explicitly supplied
 `--profile`, the action also retains it as `--profile.value`. Default and
 single-profile automatic selections remain implicit and are not added as a
-new flag.
+new flag. Compact workflow navigation and refresh actions follow the same
+explicit-versus-implicit profile rule.
+
+Continuation metadata also preserves whether `limit` came from structured
+`--limit` or repeatable `--param`. A structured limit remains `--limit.value`;
+a passthrough value, including a non-numeric value, remains in
+`--param.values`. Supported structured resource pagination emits the
+replacement token as `--page-token.value`. Generic API GETs and resources that
+do not support the structured page-token flag instead replace any stale
+passthrough token with exactly one `page_token=<new-token>` entry in
+`--param.values`. The generated action can therefore be replayed through the
+normal CLI parser without converting passthrough values into structured flags.
 
 ### Projected and bounded results
 

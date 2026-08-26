@@ -6,7 +6,7 @@ use url::Url;
 
 use crate::{
     client::FrontClient,
-    envelope::{self, Action, ParamSpec},
+    envelope::{self, ActionContext, ParamSpec},
 };
 
 use super::CommandError;
@@ -24,9 +24,51 @@ pub struct ReadRequest {
     pub command: String,
     pub segments: Vec<String>,
     pub query: Vec<(String, String)>,
-    pub pagination_command: Option<String>,
-    pub profile: Option<String>,
+    pub pagination: Option<PaginationContext>,
+    pub action_context: ActionContext,
     pub output: OutputOptions,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum ContinuationQueryParam {
+    Passthrough(String, String),
+    StructuredLimit(u32),
+    StructuredPageToken(String),
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum NextPageParameter {
+    Structured,
+    Passthrough,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PaginationContext {
+    command: String,
+    query: Vec<ContinuationQueryParam>,
+    next_page_parameter: NextPageParameter,
+}
+
+impl PaginationContext {
+    pub fn structured(command: impl Into<String>, query: Vec<ContinuationQueryParam>) -> Self {
+        Self {
+            command: command.into(),
+            query,
+            next_page_parameter: NextPageParameter::Structured,
+        }
+    }
+
+    pub fn passthrough(command: impl Into<String>, query: Vec<ContinuationQueryParam>) -> Self {
+        Self {
+            command: command.into(),
+            query,
+            next_page_parameter: NextPageParameter::Passthrough,
+        }
+    }
+
+    pub fn command(&self) -> &str {
+        &self.command
+    }
 }
 
 #[derive(Serialize)]
@@ -71,17 +113,12 @@ pub async fn execute_read(
         .and_then(Value::as_str)
         .and_then(page_token);
     let transformed = transform_output(data, &request.output);
-    let next_actions = match (&request.pagination_command, &next_page_token) {
-        (Some(command), Some(token)) => vec![Action {
-            command: command.clone(),
-            description: "Next page of results".into(),
-            params: pagination_params(
-                &request.query,
-                request.profile.as_deref(),
-                &request.output,
-                token,
-            ),
-        }],
+    let next_actions = match (&request.pagination, &next_page_token) {
+        (Some(pagination), Some(token)) => vec![request.action_context.action(
+            pagination.command.clone(),
+            "Next page of results",
+            pagination_params(pagination, &request.output, token),
+        )],
         _ => vec![],
     };
 
@@ -240,25 +277,42 @@ fn object_fields(value: Value, fields: &[String]) -> Value {
 }
 
 fn pagination_params(
-    query: &[(String, String)],
-    profile: Option<&str>,
+    pagination: &PaginationContext,
     output: &OutputOptions,
     next_token: &str,
 ) -> BTreeMap<String, ParamSpec> {
-    let last_limit = query.iter().rposition(|(name, _)| name == "limit");
     let mut params = BTreeMap::new();
-    let repeated: Vec<_> = query
-        .iter()
-        .enumerate()
-        .filter(|(index, (name, _))| name != "page_token" && Some(*index) != last_limit)
-        .map(|(_, (name, value))| format!("{name}={value}"))
-        .collect();
+    let mut repeated = vec![];
+    let mut replacement_inserted = false;
+    let mut structured_limit = None;
+    for parameter in &pagination.query {
+        match parameter {
+            ContinuationQueryParam::Passthrough(name, _) if name == "page_token" => {
+                if pagination.next_page_parameter == NextPageParameter::Passthrough
+                    && !replacement_inserted
+                {
+                    repeated.push(format!("page_token={next_token}"));
+                    replacement_inserted = true;
+                }
+            }
+            ContinuationQueryParam::Passthrough(name, value) => {
+                repeated.push(format!("{name}={value}"));
+            }
+            ContinuationQueryParam::StructuredLimit(limit) => {
+                structured_limit = Some(*limit);
+            }
+            ContinuationQueryParam::StructuredPageToken(_) => {}
+        }
+    }
+    if pagination.next_page_parameter == NextPageParameter::Passthrough && !replacement_inserted {
+        repeated.push(format!("page_token={next_token}"));
+    }
 
-    if let Some(index) = last_limit {
+    if let Some(limit) = structured_limit {
         params.insert(
             "--limit".into(),
             ParamSpec {
-                value: Some(query[index].1.clone()),
+                value: Some(limit.to_string()),
                 ..ParamSpec::new("Maximum results requested from Front")
             },
         );
@@ -269,15 +323,6 @@ fn pagination_params(
             ParamSpec {
                 values: repeated,
                 ..ParamSpec::new("Additional query parameters; repeat this flag for each value")
-            },
-        );
-    }
-    if let Some(profile) = profile {
-        params.insert(
-            "--profile".into(),
-            ParamSpec {
-                value: Some(profile.into()),
-                ..ParamSpec::new("Named config profile")
             },
         );
     }
@@ -311,13 +356,15 @@ fn pagination_params(
             },
         );
     }
-    params.insert(
-        "--page-token".into(),
-        ParamSpec {
-            value: Some(next_token.into()),
-            ..ParamSpec::new("Next page token")
-        },
-    );
+    if pagination.next_page_parameter == NextPageParameter::Structured {
+        params.insert(
+            "--page-token".into(),
+            ParamSpec {
+                value: Some(next_token.into()),
+                ..ParamSpec::new("Next page token")
+            },
+        );
+    }
     params
 }
 
@@ -328,8 +375,8 @@ pub async fn whoami_json(client: &FrontClient) -> Result<String, CommandError> {
             command: "front whoami".into(),
             segments: vec!["me".into()],
             query: vec![],
-            pagination_command: None,
-            profile: None,
+            pagination: None,
+            action_context: ActionContext::default(),
             output: OutputOptions::default(),
         },
     )

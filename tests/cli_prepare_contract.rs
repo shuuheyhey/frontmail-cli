@@ -33,7 +33,10 @@ fn list_request_uses_canonical_command_and_structured_query() {
         ]
     );
     assert_eq!(
-        request.pagination_command.as_deref(),
+        request
+            .pagination
+            .as_ref()
+            .map(|pagination| pagination.command()),
         Some("front list tag")
     );
 }
@@ -314,7 +317,7 @@ fn profile_and_output_flags_prepare_the_same_paginated_request_in_global_positio
         .unwrap()
         .unwrap();
 
-        assert_eq!(request.profile.as_deref(), Some("work"));
+        assert_eq!(request.action_context.explicit_profile(), Some("work"));
         assert_eq!(request.query, [("limit".into(), "100".into())]);
         assert_eq!(
             request.output,

@@ -1,4 +1,8 @@
-use frontmail_cli::{client::FrontClient, commands::read_json};
+use frontmail_cli::{
+    client::FrontClient,
+    commands::{read_json, read_json_with_context},
+    envelope::ActionContext,
+};
 use secrecy::SecretString;
 use serde_json::Value;
 use wiremock::{
@@ -84,4 +88,47 @@ async fn read_fetches_conversation_and_messages_and_truncates_utf8_safely() {
         actual["next_actions"][0]["params"]["conversation-id"]["value"],
         "cnv_1"
     );
+}
+
+#[tokio::test]
+async fn read_actions_preserve_only_the_explicit_profile() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/conversations/cnv_1"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "id": "cnv_1",
+            "subject": "Hello",
+            "status": "open",
+            "recipient": {"handle": "customer@example.com"}
+        })))
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/conversations/cnv_1/messages"))
+        .and(query_param("limit", "25"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "_results": []
+        })))
+        .mount(&server)
+        .await;
+
+    let explicit = read_json_with_context(
+        &client(&server),
+        "cnv_1",
+        &ActionContext::from_explicit_profile(Some("work")),
+    )
+    .await
+    .unwrap();
+    let explicit: Value = serde_json::from_str(&explicit).unwrap();
+    for action in explicit["next_actions"].as_array().unwrap() {
+        assert_eq!(action["params"]["--profile"]["value"], "work");
+    }
+
+    let implicit = read_json_with_context(&client(&server), "cnv_1", &ActionContext::default())
+        .await
+        .unwrap();
+    let implicit: Value = serde_json::from_str(&implicit).unwrap();
+    for action in implicit["next_actions"].as_array().unwrap() {
+        assert!(action["params"].get("--profile").is_none());
+    }
 }

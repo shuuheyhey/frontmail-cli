@@ -36,8 +36,12 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 - Keep HTTP 401 remediation scoped to the selected named profile, while
   preserving legacy token guidance, and reject empty or whitespace-only
   profile keys and selectors.
-- Preserve an explicit named profile together with upstream pagination and
-  local output controls in generic-read continuation actions.
+- Preserve an explicit named profile in every authenticated compact and generic
+  continuation, navigation, and refresh action while keeping implicit profile
+  selection hidden.
+- Preserve structured versus passthrough pagination origins so continuation
+  actions remain parseable, replace stale page tokens once, and retain repeated
+  parameter order and values.
 - Follow up to three validated HTTP 301 redirects while preserving the
   configured Front API origin.
 - Use a message's `from` recipient as the sender when its author is absent.

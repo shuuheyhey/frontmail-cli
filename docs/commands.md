@@ -202,7 +202,15 @@ passed once without a following value. This preserves an explicitly supplied
 `--profile`, the original limit, filters, arbitrary parameters, local output
 controls, and replacement page token without reconstructing them from a URL.
 Default or automatically selected profiles are not converted into an explicit
-flag. See
+flag. The compact `inboxes`, `inbox`, and `read` navigation and refresh actions
+use the same rule.
+
+Structured `--limit` values stay structured, while a `limit=...` supplied with
+`--param` remains a repeated passthrough value. For `api get` and resources
+without structured page-token support, continuation replaces stale
+passthrough page tokens with one `page_token=<new-token>` in `--param.values`.
+Resources with structured pagination use `--page-token`. Generated
+continuations remain valid input to the normal CLI parser. See
 [Output format](output-format.md) for the complete action schema.
 
 ## Shell completion

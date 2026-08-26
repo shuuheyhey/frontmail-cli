@@ -2,7 +2,8 @@ use clap::{Args, Parser, Subcommand};
 use clap_complete::Shell;
 
 use crate::{
-    commands::{OutputOptions, ReadRequest},
+    commands::{ContinuationQueryParam, OutputOptions, PaginationContext, ReadRequest},
+    envelope::ActionContext,
     resources::{Resource, ResourceError, parse_query_pairs, related_segments, validate_api_path},
 };
 
@@ -193,43 +194,64 @@ pub struct CompletionArgs {
 }
 
 pub fn prepare_read_request(command: &Commands) -> Result<Option<ReadRequest>, ResourceError> {
-    prepare_read_request_with_profile(command, None)
+    prepare_read_request_with_action_context(command, &ActionContext::default())
 }
 
 pub fn prepare_read_request_with_profile(
     command: &Commands,
     profile: Option<&str>,
 ) -> Result<Option<ReadRequest>, ResourceError> {
-    let profile = profile.map(str::to_owned);
+    prepare_read_request_with_action_context(
+        command,
+        &ActionContext::from_explicit_profile(profile),
+    )
+}
+
+pub fn prepare_read_request_with_action_context(
+    command: &Commands,
+    action_context: &ActionContext,
+) -> Result<Option<ReadRequest>, ResourceError> {
     let request = match command {
         Commands::Whoami => ReadRequest {
             command: "front whoami".into(),
             segments: vec!["me".into()],
             query: vec![],
-            pagination_command: None,
-            profile: profile.clone(),
+            pagination: None,
+            action_context: action_context.clone(),
             output: OutputOptions::default(),
         },
         Commands::Api(ApiArgs {
             action: ApiAction::Get(args),
-        }) => ReadRequest {
-            command: format!("front api get {}", args.path),
-            segments: validate_api_path(&args.path)?,
-            query: build_query(&args.query)?,
-            pagination_command: Some(format!("front api get {}", args.path)),
-            profile: profile.clone(),
-            output: (&args.output).into(),
-        },
+        }) => {
+            let command = format!("front api get {}", args.path);
+            let query = build_query(&args.query)?;
+            ReadRequest {
+                command: command.clone(),
+                segments: validate_api_path(&args.path)?,
+                query: query.pairs,
+                pagination: Some(PaginationContext::passthrough(command, query.continuation)),
+                action_context: action_context.clone(),
+                output: (&args.output).into(),
+            }
+        }
         Commands::List(args) => {
             let resource = Resource::parse(&args.resource)?;
             let segments = resource.collection_segments()?;
             validate_collection_query(resource, &args.query)?;
+            let capabilities = resource.collection_query_capabilities();
+            let command = format!("front list {}", resource.name());
+            let query = build_query(&args.query)?;
+            let pagination = if capabilities.page_token {
+                PaginationContext::structured(command.clone(), query.continuation)
+            } else {
+                PaginationContext::passthrough(command.clone(), query.continuation)
+            };
             ReadRequest {
-                command: format!("front list {}", resource.name()),
+                command,
                 segments,
-                query: build_query(&args.query)?,
-                pagination_command: Some(format!("front list {}", resource.name())),
-                profile: profile.clone(),
+                query: query.pairs,
+                pagination: Some(pagination),
+                action_context: action_context.clone(),
                 output: (&args.output).into(),
             }
         }
@@ -239,29 +261,26 @@ pub fn prepare_read_request_with_profile(
                 command: format!("front get {} {}", resource.name(), args.id),
                 segments: resource.item_segments(&args.id)?,
                 query: parse_query_pairs(&args.params)?,
-                pagination_command: None,
-                profile: profile.clone(),
+                pagination: None,
+                action_context: action_context.clone(),
                 output: (&args.output).into(),
             }
         }
         Commands::Related(args) => {
             let resource = Resource::parse(&args.resource)?;
+            let command = format!(
+                "front related {} {} {}",
+                resource.name(),
+                args.id,
+                args.relation
+            );
+            let query = build_query(&args.query)?;
             ReadRequest {
-                command: format!(
-                    "front related {} {} {}",
-                    resource.name(),
-                    args.id,
-                    args.relation
-                ),
+                command: command.clone(),
                 segments: related_segments(resource, &args.id, &args.relation)?,
-                query: build_query(&args.query)?,
-                pagination_command: Some(format!(
-                    "front related {} {} {}",
-                    resource.name(),
-                    args.id,
-                    args.relation
-                )),
-                profile,
+                query: query.pairs,
+                pagination: Some(PaginationContext::structured(command, query.continuation)),
+                action_context: action_context.clone(),
                 output: (&args.output).into(),
             }
         }
@@ -292,13 +311,28 @@ fn validate_collection_query(resource: Resource, args: &QueryArgs) -> Result<(),
     Ok(())
 }
 
-fn build_query(args: &QueryArgs) -> Result<Vec<(String, String)>, ResourceError> {
-    let mut query = parse_query_pairs(&args.params)?;
+struct PreparedQuery {
+    pairs: Vec<(String, String)>,
+    continuation: Vec<ContinuationQueryParam>,
+}
+
+fn build_query(args: &QueryArgs) -> Result<PreparedQuery, ResourceError> {
+    let mut pairs = parse_query_pairs(&args.params)?;
+    let mut continuation: Vec<ContinuationQueryParam> = pairs
+        .iter()
+        .cloned()
+        .map(|(name, value)| ContinuationQueryParam::Passthrough(name, value))
+        .collect();
     if let Some(limit) = args.limit {
-        query.push(("limit".into(), limit.to_string()));
+        pairs.push(("limit".into(), limit.to_string()));
+        continuation.push(ContinuationQueryParam::StructuredLimit(limit));
     }
     if let Some(token) = &args.page_token {
-        query.push(("page_token".into(), token.clone()));
+        pairs.push(("page_token".into(), token.clone()));
+        continuation.push(ContinuationQueryParam::StructuredPageToken(token.clone()));
     }
-    Ok(query)
+    Ok(PreparedQuery {
+        pairs,
+        continuation,
+    })
 }
