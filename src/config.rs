@@ -19,6 +19,15 @@ pub struct Config {
     pub user: String,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ConfigSource {
+    Environment,
+    TokenCommand,
+    Config,
+    None,
+}
+
 pub fn path() -> PathBuf {
     BaseDirs::new()
         .map(|dirs| dirs.config_dir().join("front").join("config.yaml"))
@@ -79,11 +88,34 @@ pub fn resolve_token(
     Ok(SecretString::from(token))
 }
 
+pub fn token_source(config: &Config, env: &BTreeMap<String, String>) -> ConfigSource {
+    if env
+        .get("FRONT_API_TOKEN")
+        .is_some_and(|token| !token.is_empty())
+    {
+        ConfigSource::Environment
+    } else if !config.token_command.is_empty() {
+        ConfigSource::TokenCommand
+    } else {
+        ConfigSource::None
+    }
+}
+
 pub fn resolve_user(config: &Config, env: &BTreeMap<String, String>) -> String {
     env.get("FRONT_USER")
         .filter(|user| !user.is_empty())
         .cloned()
         .unwrap_or_else(|| config.user.clone())
+}
+
+pub fn user_source(config: &Config, env: &BTreeMap<String, String>) -> ConfigSource {
+    if env.get("FRONT_USER").is_some_and(|user| !user.is_empty()) {
+        ConfigSource::Environment
+    } else if !config.user.is_empty() {
+        ConfigSource::Config
+    } else {
+        ConfigSource::None
+    }
 }
 
 pub fn current_env() -> BTreeMap<String, String> {

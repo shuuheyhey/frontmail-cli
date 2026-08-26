@@ -20,6 +20,8 @@ struct ConfigResult {
     #[serde(skip_serializing_if = "Option::is_none")]
     token_command: Option<&'static str>,
     user: String,
+    token_source: config::ConfigSource,
+    user_source: config::ConfigSource,
 }
 
 #[tokio::main]
@@ -245,13 +247,16 @@ fn run_config() {
     let path = config::path();
     match config::load_from(&path) {
         Ok(config) => {
+            let env = config::current_env();
             let token_command = (!config.token_command.is_empty()).then_some("(configured)");
             print_json(envelope::success(
                 "front config",
                 ConfigResult {
                     path: path.display().to_string(),
                     token_command,
-                    user: config.user,
+                    user: config::resolve_user(&config, &env),
+                    token_source: config::token_source(&config, &env),
+                    user_source: config::user_source(&config, &env),
                 },
                 vec![],
             ));

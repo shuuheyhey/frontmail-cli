@@ -45,6 +45,16 @@ for compatibility with normal CLI tooling.
 - `result` contains command-specific data.
 - `next_actions` is omitted when no continuation is available.
 
+## Configuration result
+
+`front config` returns a success envelope whose `result` includes the config
+`path`, the effective `user`, and non-secret `token_source` and `user_source`
+fields. `token_source` is one of `environment`, `token_command`, or `none`.
+`user_source` is one of `environment`, `config`, or `none`. When a
+`token_command` is configured, the optional `result.token_command` field is the
+literal `(configured)`; the executable, its arguments, and token values are
+never included.
+
 ## Generic read results
 
 `front whoami`, `front list`, `front get`, `front related`, and
@@ -108,5 +118,6 @@ before configuration resolution and before any HTTP request.
 ## Secret handling
 
 Resolved tokens are never part of success output, error output, URLs, query
-parameters, debug representations, or `front config`. API error messages may
-still contain Front-provided text, so redact output before sharing it.
+parameters, debug representations, or `front config`. `front config` does not
+execute `token_command`. API error messages may still contain Front-provided
+text, so redact output before sharing it.

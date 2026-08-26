@@ -27,7 +27,18 @@ A missing file is valid and behaves like an empty configuration.
 
 The command reports `result.token_command` as `(configured)` when the list is
 non-empty and omits the field when it is unset. It never prints the executable,
-arguments, or resolved token.
+arguments, or resolved token, and it does not execute `token_command`.
+
+`front config` reports the effective `result.user`, using the same selection as
+API commands. It also reports non-secret source fields with these exact values:
+
+| Field | Values | Selection |
+|---|---|---|
+| `result.token_source` | `environment`, `token_command`, `none` | Non-empty `FRONT_API_TOKEN`, then a non-empty `token_command`, then no token source. |
+| `result.user_source` | `environment`, `config`, `none` | Non-empty `FRONT_USER`, then a non-empty config `user`, then no user source. |
+
+An empty environment variable falls back to the next source. The source report
+only identifies the selected source; it never resolves a token command.
 
 ## Config file format
 

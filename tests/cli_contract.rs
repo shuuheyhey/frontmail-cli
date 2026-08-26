@@ -73,12 +73,50 @@ fn version_is_plain_text_for_cli_tooling_compatibility() {
 #[test]
 #[cfg(not(target_os = "windows"))]
 fn config_reports_status_without_exposing_a_token() {
+    const ENV_TOKEN: &str = "synthetic-environment-token";
+    const COMMAND_ARG: &str = "synthetic-token-command-argument";
     let dir = tempdir().unwrap();
     let (mut command, config_path) = isolated_config_command(dir.path());
     fs::create_dir_all(config_path.parent().unwrap()).unwrap();
     fs::write(
         config_path,
-        "token_command: [printf, secret-value]\nuser: configured@example.com\n",
+        format!(
+            "token_command: [definitely-not-executed, {COMMAND_ARG}]\nuser: configured@example.com\n"
+        ),
+    )
+    .unwrap();
+
+    let output = command
+        .arg("config")
+        .env("FRONT_API_TOKEN", ENV_TOKEN)
+        .env("FRONT_USER", "environment@example.com")
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+    let actual: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(actual["command"], "front config");
+    assert_eq!(actual["result"]["token_command"], "(configured)");
+    assert_eq!(actual["result"]["token_source"], "environment");
+    assert_eq!(actual["result"]["user"], "environment@example.com");
+    assert_eq!(actual["result"]["user_source"], "environment");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(!stdout.contains(ENV_TOKEN));
+    assert!(!stderr.contains(ENV_TOKEN));
+    assert!(!stdout.contains(COMMAND_ARG));
+    assert!(!stderr.contains(COMMAND_ARG));
+}
+
+#[test]
+#[cfg(not(target_os = "windows"))]
+fn config_does_not_execute_the_configured_token_command() {
+    let dir = tempdir().unwrap();
+    let (mut command, config_path) = isolated_config_command(dir.path());
+    fs::create_dir_all(config_path.parent().unwrap()).unwrap();
+    fs::write(
+        config_path,
+        "token_command: [definitely-not-executed, synthetic-token-command-argument]\n",
     )
     .unwrap();
 
@@ -90,10 +128,7 @@ fn config_reports_status_without_exposing_a_token() {
 
     assert!(output.status.success());
     let actual: Value = serde_json::from_slice(&output.stdout).unwrap();
-    assert_eq!(actual["command"], "front config");
-    assert_eq!(actual["result"]["token_command"], "(configured)");
-    assert_eq!(actual["result"]["user"], "configured@example.com");
-    assert!(!String::from_utf8_lossy(&output.stdout).contains("secret-value"));
+    assert_eq!(actual["result"]["token_source"], "token_command");
 }
 
 #[test]
