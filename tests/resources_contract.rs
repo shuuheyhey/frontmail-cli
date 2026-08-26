@@ -22,6 +22,39 @@ fn resource_aliases_map_to_official_collection_paths() {
 }
 
 #[test]
+fn listable_resources_match_the_pinned_official_pagination_matrix() {
+    let cases = [
+        (Resource::Account, true, true),
+        (Resource::Channel, false, false),
+        (Resource::Contact, true, true),
+        (Resource::Conversation, true, true),
+        (Resource::Event, true, true),
+        (Resource::Inbox, false, false),
+        (Resource::KnowledgeBase, false, false),
+        (Resource::Link, true, true),
+        (Resource::MessageTemplate, false, false),
+        (Resource::MessageTemplateFolder, false, false),
+        (Resource::Rule, false, false),
+        (Resource::Shift, false, false),
+        (Resource::Tag, true, true),
+        (Resource::Teammate, false, false),
+        (Resource::TeammateGroup, false, false),
+        (Resource::Team, false, false),
+        (Resource::View, true, true),
+    ];
+
+    for (resource, expected_limit, expected_page_token) in cases {
+        let actual = resource.collection_query_capabilities();
+        assert_eq!(
+            (actual.limit, actual.page_token),
+            (expected_limit, expected_page_token),
+            "{}",
+            resource.name()
+        );
+    }
+}
+
+#[test]
 fn item_paths_use_the_official_plural_segment() {
     assert_eq!(
         Resource::parse("message-template")

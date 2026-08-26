@@ -45,20 +45,178 @@ for compatibility with normal CLI tooling.
 - `result` contains command-specific data.
 - `next_actions` is omitted when no continuation is available.
 
+## Configuration result
+
+`front config` always returns the config `path` plus non-secret `token_source`
+and `user_source` fields. `token_source` is one of `environment`,
+`token_command`, or `none`; `user_source` is one of `environment`, `config`, or
+`none`.
+
+For legacy selection, `result.user` contains the effective user when one is
+configured, and the profile fields are omitted. For named-profile selection,
+`result.profile` contains the selected profile name,
+`result.profile_source` is `explicit`, `default`, or `single`, and
+`result.user` is omitted even when that profile configures a user. When a
+`token_command` is configured, the optional `result.token_command` field is the
+literal `(configured)`; the executable, its arguments, user values, and token
+values are never included.
+
+## Doctor result
+
+`front doctor` returns the normal success envelope with a redacted diagnostic
+result:
+
+```json
+{
+  "ok": true,
+  "command": "front doctor",
+  "result": {
+    "token_source": "environment",
+    "authentication": "ok",
+    "configured_user_source": "config",
+    "configured_user_matches_token": true,
+    "checks": {
+      "tags_read": "ok",
+      "inboxes_read": "forbidden",
+      "teammates_read": "error"
+    }
+  }
+}
+```
+
+`authentication` is `ok` in a success result because `/me` failures remain
+top-level failures. Those failures contain only a fixed CLI message and the
+HTTP status used for normal error-code classification; Front response text is
+discarded. Each optional read check is `ok`, `forbidden`, or `error`.
+`configured_user_matches_token` is `true`, `false`, `unavailable`, or
+`not_configured`. The two boolean states are JSON booleans; the unavailable
+states are strings.
+
+Doctor success output never includes API response bodies, Front-provided error
+messages, token values, token-command arguments, effective user values,
+resource IDs, or customer data.
+
 ## Generic read results
 
-`front whoami`, `front list`, `front get`, `front related`, and
+By default, `front whoami`, `front list`, `front get`, `front related`, and
 `front api get` preserve the complete decoded API response under `result.data`.
-The CLI does not rename or discard API fields.
+The CLI does not rename or discard API fields. With no output control, the
+generic result shape is unchanged and does not include `returned`, `projection`,
+or `truncated`.
 
 When `data._results` is an array, `result.count` contains the number returned in
 the current response. Item and other non-collection JSON responses omit
 `count`. When `_pagination.next` contains a page token, the result includes
 `next_page_token` and a corresponding next action.
 
+With a local output control active, the transformer recognizes two collection
+shapes. A response object whose `_results` value is an array is a wrapped
+collection; projection keeps the `_results` wrapper. A top-level JSON array is
+an unwrapped collection; projection keeps it as a top-level array and does not
+introduce an `_results` object. In both cases, `count` is the size before local
+truncation and `returned` is the size afterward. Default output retains the
+legacy behavior above and only derives `count` from an `_results` array.
+
 A parameter with `value` is passed once. A parameter with `values` is repeated
-once for each array item, preserving filters and arbitrary query parameters
-when an agent follows a pagination action.
+once for each array item. A parameter with neither represents a bare boolean
+switch. Pagination actions preserve filters, arbitrary query parameters, and
+active generic output controls. When the original command explicitly supplied
+`--profile`, the action also retains it as `--profile.value`. Default and
+single-profile automatic selections remain implicit and are not added as a
+new flag. Compact workflow navigation and refresh actions follow the same
+explicit-versus-implicit profile rule.
+
+Continuation metadata also preserves whether `limit` came from structured
+`--limit` or repeatable `--param`. A structured limit remains `--limit.value`;
+a passthrough value, including a non-numeric value, remains in
+`--param.values`. Supported structured resource pagination emits the
+replacement token as `--page-token.value`; resources without that capability
+use exactly one `page_token=<new-token>` entry in `--param.values`. For generic
+API GETs, an original structured page token retains `--page-token.value`, while
+a passthrough-only token retains `--param.values`. Structured origin wins when
+both are present, removing all stale passthrough tokens, and no original token
+uses the established structured action shape. The generated action can
+therefore be replayed through the normal CLI parser. When structured origin
+wins, request preparation places the replacement token after every retained
+passthrough query value.
+
+### Projected and bounded results
+
+The generic resource and API GET commands support the following result
+metadata only when a local output option is active:
+
+| Field | Meaning |
+|---|---|
+| `count` | Original decoded `_results` array or top-level array size before local truncation; omitted for non-collections |
+| `returned` | Number of collection items or the single projected item left in `data`; always `0` for count-only output |
+| `projection` | Projection mode and, for field projection, the requested literal field names |
+| `truncated` | `true` only when `--max-items` removed collection items |
+
+Count-only output omits `data`:
+
+```json
+{
+  "count": 42,
+  "returned": 0,
+  "projection": { "mode": "count-only" }
+}
+```
+
+Keys-only output replaces objects with sorted key arrays. For a wrapped
+collection, the `_results` wrapper remains but response values and the original
+pagination object are not copied into `data`:
+
+```json
+{
+  "data": {
+    "_results": [
+      ["id", "name"]
+    ]
+  },
+  "count": 1,
+  "returned": 1,
+  "projection": { "mode": "keys-only" },
+  "next_page_token": "next-token"
+}
+```
+
+For a top-level array, keys-only output remains a top-level array:
+
+```json
+{
+  "data": [
+    ["id", "name"]
+  ],
+  "count": 1,
+  "returned": 1,
+  "projection": { "mode": "keys-only" }
+}
+```
+
+Field projection uses a stable tagged form:
+
+```json
+{
+  "data": { "id": "tag_123", "name": "Urgent" },
+  "returned": 1,
+  "projection": {
+    "mode": "fields",
+    "fields": ["id", "name"]
+  }
+}
+```
+
+For a wrapped collection, field projection applies to every object in
+`data._results` and retains that wrapper. For a top-level array, it applies to
+every array item and keeps `data` as an array. `--max-items` truncates the same
+recognized collection shape without converting one shape into the other.
+
+`--count-only` and `--keys-only` keep customer response values out of
+`result.data`; they are not complete redaction modes. Counts, key names,
+commands, resource identifiers, pagination tokens, errors, and action metadata
+can still be sensitive. `--fields` deliberately returns the selected values,
+and the default output returns the full decoded response. Review output before
+sharing it outside its intended trust boundary.
 
 ## Compact workflow results
 
@@ -108,5 +266,7 @@ before configuration resolution and before any HTTP request.
 ## Secret handling
 
 Resolved tokens are never part of success output, error output, URLs, query
-parameters, debug representations, or `front config`. API error messages may
-still contain Front-provided text, so redact output before sharing it.
+parameters, debug representations, or `front config`. `front config` does not
+execute `token_command`. Doctor output never includes Front-provided response
+text: required authentication failures use a fixed status-only message, and
+optional API errors use fixed status strings.

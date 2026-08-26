@@ -49,6 +49,30 @@ For persistent secret-manager integration, use `token_command` as described in
 [Configuration](configuration.md). Do not put a token in a command argument,
 issue, log, screenshot, or repository file.
 
+To keep multiple accounts or environments separate, configure named profiles:
+
+```yaml
+default_profile: work
+profiles:
+  work:
+    user: user@example.com
+    token_command:
+      - op
+      - read
+      - op://Vault/work_front_api_token/password
+```
+
+Then use the default or select it explicitly:
+
+```bash
+front config
+front --profile work config
+front whoami --profile work
+```
+
+An explicit profile ignores ambient `FRONT_API_TOKEN` and `FRONT_USER` values.
+See [Configuration](configuration.md) before migrating legacy top-level fields.
+
 ## Verify access
 
 ```bash
@@ -56,11 +80,13 @@ front config
 front whoami
 ```
 
-`front config` reports the config path and configured user. When a token
-command exists, `result.token_command` is the literal string `(configured)`;
-when it is unset, that field is omitted. The command never resolves or prints
-the token or token-command arguments. `front whoami` performs the first
-authenticated GET and returns the Front user represented by the token.
+For legacy selection, `front config` reports the config path and effective
+user. For a named profile it reports the profile name and source while omitting
+the profile user. When a token command exists, `result.token_command` is the
+literal string `(configured)`; when it is unset, that field is omitted. The
+command never resolves or prints the token or token-command arguments. `front
+whoami` performs the first authenticated GET and returns the Front user
+represented by the token.
 
 ## Run the first workflow
 

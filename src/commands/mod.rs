@@ -1,7 +1,12 @@
 use std::collections::BTreeMap;
 
+mod doctor;
 mod read_api;
-pub use read_api::{ReadRequest, execute_read, whoami_json};
+pub use doctor::{DoctorAuthenticationError, doctor_json};
+pub use read_api::{
+    ContinuationQueryParam, OutputOptions, PaginationContext, ReadRequest, execute_read,
+    whoami_json,
+};
 
 use chrono::{DateTime, NaiveDate, SecondsFormat, Utc};
 use serde::Serialize;
@@ -9,7 +14,7 @@ use url::Url;
 
 use crate::{
     client::{ClientError, FrontClient},
-    envelope::{self, Action, ParamSpec},
+    envelope::{self, ActionContext, ParamSpec},
     inbox_params,
     models::{
         ContactSummary, ConversationResponse, ConversationSummary, MessageResponse, MessageSummary,
@@ -21,6 +26,8 @@ pub const MAX_TEXT_LENGTH: usize = 500;
 
 #[derive(Debug, thiserror::Error)]
 pub enum CommandError {
+    #[error(transparent)]
+    DoctorAuthentication(#[from] DoctorAuthenticationError),
     #[error(transparent)]
     Client(#[from] ClientError),
     #[error("invalid date {value:?}, expected YYYY-MM-DD format")]
@@ -97,6 +104,14 @@ fn is_false(value: &bool) -> bool {
 }
 
 pub async fn inboxes_json(client: &FrontClient, user: &str) -> Result<String, CommandError> {
+    inboxes_json_with_context(client, user, &ActionContext::default()).await
+}
+
+pub async fn inboxes_json_with_context(
+    client: &FrontClient,
+    user: &str,
+    action_context: &ActionContext,
+) -> Result<String, CommandError> {
     let response = if user.is_empty() {
         client.list_inboxes().await?
     } else {
@@ -115,19 +130,19 @@ pub async fn inboxes_json(client: &FrontClient, user: &str) -> Result<String, Co
         .collect();
     let mut actions = vec![];
     if let Some(first) = inboxes.first().filter(|inbox| !inbox.id.is_empty()) {
-        actions.push(Action {
-            command: "front inbox <inbox-id>".into(),
-            description: "Search conversations in this inbox".into(),
-            params: BTreeMap::from([(
+        actions.push(action_context.action(
+            "front inbox <inbox-id>",
+            "Search conversations in this inbox",
+            BTreeMap::from([(
                 "inbox-id".into(),
                 ParamSpec {
                     value: Some(first.id.clone()),
                     ..ParamSpec::new("Inbox ID")
                 },
             )]),
-        });
+        ));
     }
-    actions.push(inbox_action());
+    actions.push(inbox_action(action_context));
 
     Ok(envelope::success(
         "front inboxes",
@@ -143,6 +158,14 @@ pub async fn inboxes_json(client: &FrontClient, user: &str) -> Result<String, Co
 pub async fn inbox_json(
     client: &FrontClient,
     options: &InboxOptions,
+) -> Result<String, CommandError> {
+    inbox_json_with_context(client, options, &ActionContext::default()).await
+}
+
+pub async fn inbox_json_with_context(
+    client: &FrontClient,
+    options: &InboxOptions,
+    action_context: &ActionContext,
 ) -> Result<String, CommandError> {
     let query = build_search_query(options)?;
     let response = client
@@ -166,34 +189,32 @@ pub async fn inbox_json(
             },
         )]);
         add_current_flags(options, &mut params);
-        actions.push(Action {
-            command: options
-                .inbox_id
-                .as_ref()
-                .map(|id| format!("front inbox {id}"))
-                .unwrap_or_else(|| "front inbox".into()),
-            description: "Next page of results".into(),
-            params,
-        });
+        actions.push(
+            action_context.action(
+                options
+                    .inbox_id
+                    .as_ref()
+                    .map(|id| format!("front inbox {id}"))
+                    .unwrap_or_else(|| "front inbox".into()),
+                "Next page of results",
+                params,
+            ),
+        );
     }
     if let Some(first) = conversations.first() {
-        actions.push(Action {
-            command: "front read <conversation-id>".into(),
-            description: "Read conversation and messages".into(),
-            params: BTreeMap::from([(
+        actions.push(action_context.action(
+            "front read <conversation-id>",
+            "Read conversation and messages",
+            BTreeMap::from([(
                 "conversation-id".into(),
                 ParamSpec {
                     value: Some(first.id.clone()),
                     ..ParamSpec::new("Conversation ID")
                 },
             )]),
-        });
+        ));
     }
-    actions.push(Action {
-        command: "front inboxes".into(),
-        description: "List all inboxes".into(),
-        params: BTreeMap::new(),
-    });
+    actions.push(action_context.action("front inboxes", "List all inboxes", BTreeMap::new()));
 
     Ok(envelope::success(
         "front inbox",
@@ -212,6 +233,14 @@ pub async fn read_json(
     client: &FrontClient,
     conversation_id: &str,
 ) -> Result<String, CommandError> {
+    read_json_with_context(client, conversation_id, &ActionContext::default()).await
+}
+
+pub async fn read_json_with_context(
+    client: &FrontClient,
+    conversation_id: &str,
+    action_context: &ActionContext,
+) -> Result<String, CommandError> {
     let (conversation, messages) = tokio::try_join!(
         client.get_conversation(conversation_id),
         client.list_conversation_messages(conversation_id, DEFAULT_LIMIT),
@@ -222,23 +251,19 @@ pub async fn read_json(
         .is_some_and(|pagination| pagination.next.is_some());
     let messages = messages.results.into_iter().map(map_message).collect();
     let actions = vec![
-        Action {
-            command: "front read <conversation-id>".into(),
-            description: "Refresh this conversation".into(),
-            params: BTreeMap::from([(
+        action_context.action(
+            "front read <conversation-id>",
+            "Refresh this conversation",
+            BTreeMap::from([(
                 "conversation-id".into(),
                 ParamSpec {
                     value: Some(conversation_id.into()),
                     ..ParamSpec::new("Conversation ID")
                 },
             )]),
-        },
-        inbox_action(),
-        Action {
-            command: "front inboxes".into(),
-            description: "List all inboxes".into(),
-            params: BTreeMap::new(),
-        },
+        ),
+        inbox_action(action_context),
+        action_context.action("front inboxes", "List all inboxes", BTreeMap::new()),
     ];
 
     Ok(envelope::success(
@@ -389,12 +414,12 @@ fn full_name(first_name: &str, last_name: &str) -> String {
     }
 }
 
-fn inbox_action() -> Action {
-    Action {
-        command: "front inbox [inbox-id]".into(),
-        description: "Search conversations".into(),
-        params: inbox_params(),
-    }
+fn inbox_action(action_context: &ActionContext) -> crate::envelope::Action {
+    action_context.action(
+        "front inbox [inbox-id]",
+        "Search conversations",
+        inbox_params(),
+    )
 }
 
 fn add_current_flags(options: &InboxOptions, params: &mut BTreeMap<String, ParamSpec>) {

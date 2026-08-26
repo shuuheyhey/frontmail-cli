@@ -10,6 +10,20 @@ pub enum AppError {
     },
     #[error("parse config {path}")]
     ParseConfig { path: PathBuf },
+    #[error("profile names must contain at least one non-whitespace character")]
+    InvalidProfileName,
+    #[error("default_profile must contain at least one non-whitespace character")]
+    InvalidDefaultProfileName,
+    #[error("--profile must contain at least one non-whitespace character")]
+    InvalidExplicitProfileName,
+    #[error("unknown profile {name:?}; available profiles: {available}")]
+    UnknownProfile { name: String, available: String },
+    #[error("default_profile {name:?} is not configured; available profiles: {available}")]
+    UnknownDefaultProfile { name: String, available: String },
+    #[error(
+        "multiple profiles are configured; use --profile <name>; available profiles: {available}"
+    )]
+    ProfileRequired { available: String },
     #[error("no API token configured")]
     NoToken,
     #[error("token_command is empty")]
@@ -27,7 +41,14 @@ pub enum AppError {
 impl AppError {
     pub fn code(&self) -> &'static str {
         match self {
-            Self::ReadConfig { .. } | Self::ParseConfig { .. } => "CONFIG_ERROR",
+            Self::ReadConfig { .. }
+            | Self::ParseConfig { .. }
+            | Self::InvalidProfileName
+            | Self::InvalidDefaultProfileName
+            | Self::InvalidExplicitProfileName
+            | Self::UnknownProfile { .. }
+            | Self::UnknownDefaultProfile { .. }
+            | Self::ProfileRequired { .. } => "CONFIG_ERROR",
             Self::NoToken
             | Self::EmptyTokenCommand
             | Self::TokenCommand(_)

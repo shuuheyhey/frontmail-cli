@@ -25,6 +25,12 @@ pub enum Resource {
     View,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct CollectionQueryCapabilities {
+    pub limit: bool,
+    pub page_token: bool,
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum ResourceError {
     #[error("unknown resource {0:?}")]
@@ -42,6 +48,11 @@ pub enum ResourceError {
     InvalidPath { path: String, reason: &'static str },
     #[error("invalid query parameter {0:?}, expected key=value")]
     InvalidQuery(String),
+    #[error("{resource} list does not support {parameter}")]
+    UnsupportedCollectionQueryParameter {
+        resource: &'static str,
+        parameter: &'static str,
+    },
 }
 
 impl Resource {
@@ -95,6 +106,23 @@ impl Resource {
             return Err(ResourceError::UnsupportedCollection(self.name()));
         }
         Ok(vec![self.path_segment().into()])
+    }
+
+    pub fn collection_query_capabilities(self) -> CollectionQueryCapabilities {
+        let supports_pagination = matches!(
+            self,
+            Self::Account
+                | Self::Contact
+                | Self::Conversation
+                | Self::Event
+                | Self::Link
+                | Self::Tag
+                | Self::View
+        );
+        CollectionQueryCapabilities {
+            limit: supports_pagination,
+            page_token: supports_pagination,
+        }
     }
 
     pub fn item_segments(self, id: &str) -> Result<Vec<String>, ResourceError> {

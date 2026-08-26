@@ -9,10 +9,34 @@ completion. All other commands return JSON envelopes documented in
 Run `front` with no arguments to return the current command catalog and
 structured parameter descriptions.
 
+## Global profile option
+
+`--profile <name>` selects a named config profile for `front config` and every
+authenticated command. Clap accepts the global option before or after a
+subcommand, including nested `api get` commands:
+
+```bash
+front --profile work list tags
+front list tags --profile work
+front api get /me --profile work
+```
+
+Explicit selection ignores ambient `FRONT_API_TOKEN`, `FRONT_USER`, and legacy
+top-level credentials. Without the option, legacy sources take priority,
+followed by `default_profile`, then automatic selection when exactly one
+profile exists. See [Configuration](configuration.md) for the complete truth
+table and redaction behavior.
+
+Profile names must contain a non-whitespace character. Names are exact and are
+not trimmed, so avoid leading or trailing spaces. An explicit empty or
+whitespace-only argument returns a canonical JSON `CONFIG_ERROR` after clap has
+accepted the argument value.
+
 | Command | Description |
 |---|---|
 | `front` | Return available commands and parameters |
-| `front config` | Show config path, user, and redacted token-command state |
+| `front config` | Show selected config metadata and redacted token-command state |
+| `front doctor` | Run redacted authentication and read-scope diagnostics |
 | `front inboxes` | List all accessible inboxes or those for `FRONT_USER` |
 | `front inbox [inbox-id]` | Search conversations, optionally in one inbox |
 | `front read <conversation-id>` | Read a compact conversation and its messages |
@@ -41,13 +65,39 @@ front read cnv_123
 | `--assignee <email>` | Append an assignee filter using `alt:email:` |
 | `--before <YYYY-MM-DD>` | Append a UTC upper time bound |
 | `--after <YYYY-MM-DD>` | Append a UTC lower time bound |
-| `--limit <number>` | Maximum results; default 25 |
+| `--limit <number>` | Maximum results (1 through 100); default 25 |
 
 When `--assignee` is used without an explicit query, the default changes to
 `is:open is:assigned`. An inbox ID adds `inbox:<id>` to the query.
 
 `front read` requests the conversation and up to 25 messages. Each message body
 is truncated at a valid UTF-8 boundary at or below 500 bytes.
+
+## Redacted diagnostics
+
+`front doctor` resolves configuration and the token once, then performs only
+GET requests. It first calls `/me`; an authentication failure uses the normal
+top-level failure envelope with a fixed, status-only CLI message. Front
+response text is discarded. After authentication succeeds, it checks:
+
+- `/tags?limit=1`;
+- `/inboxes`;
+- `/teammates`.
+
+Each optional read check reports `ok`, `forbidden` for HTTP 403, or `error` for
+any other failure. One failed optional check does not prevent the remaining
+checks from running.
+
+When an effective user is configured, the command also GETs
+`/teammates/alt:email:<URL-encoded-user>` and compares its ID with `/me` only in
+memory. `configured_user_matches_token` is the boolean `true` or `false` when
+both IDs are available, `unavailable` when they cannot be compared, and
+`not_configured` when there is no effective user.
+
+Doctor output contains only fixed diagnostic strings, booleans, source names,
+and HTTP status where needed for failure classification. It never serializes
+the token, token-command arguments, effective user, resource IDs, response
+bodies, Front-provided error messages, or customer data.
 
 ## Resource-oriented reads
 
@@ -63,14 +113,52 @@ Resource names accept documented singular, plural, and short aliases. Not every
 resource has an official top-level collection. Relations use a closed allowlist
 per parent resource. See [API support](api-support.md) for the exact mappings.
 
-Collection and relation commands accept:
+`front list` accepts `--limit` and `--page-token` only when the resource's
+official top-level endpoint documents those parameters. See the resource table
+in [API support](api-support.md). Supplying either structured flag for an
+unsupported collection exits with status 1 and an `INVALID_INPUT` envelope
+whose command uses the canonical singular resource name; validation happens
+before configuration or token resolution.
 
-- `--limit <number>`;
+Supported collection commands and all relation commands accept:
+
+- `--limit <number>` (1 through 100);
 - `--page-token <token>`;
-- repeatable `--param <key=value>` values.
+
+Every collection and relation command accepts repeatable `--param <key=value>`
+values. This generic gateway remains available even for collection parameters
+that do not have a structured flag.
 
 `front get` accepts repeatable `--param <key=value>` values. Parameters split
 on the first `=` and are URL encoded as structured query pairs.
+
+### Generic output controls
+
+`front list`, `front get`, `front related`, and `front api get` accept local
+output controls. These flags do not apply to `front inbox`, `front inboxes`,
+`front read`, or `front whoami`.
+
+| Flag | Local behavior |
+|---|---|
+| `--count-only` | Omit `result.data` and report a collection's original `count` with `returned: 0` |
+| `--keys-only` | Replace each object with its sorted top-level key names and omit object values |
+| `--fields <a,b>` | Keep only the named literal top-level keys on each `_results` item or a single object |
+| `--max-items <number>` | Keep at most this many decoded collection items; the value must be greater than zero |
+
+`--count-only` is a standalone mode. `--keys-only` and `--fields` are mutually
+exclusive. `--max-items` can be used alone or with `--keys-only` or `--fields`.
+Incompatible combinations are rejected during CLI parsing, before token or
+configuration resolution.
+
+`--limit` and `--max-items` have different boundaries. `--limit` is sent to
+Front as an upstream query parameter. `--max-items` never changes the request;
+it truncates an already decoded JSON collection locally. When local truncation
+occurs, `count` remains the number Front returned, `returned` is the number left
+in `data`, and `truncated` is `true`.
+
+Field names are literal. For example, `--fields id,metadata.name` selects keys
+named `id` and `metadata.name`; it does not traverse a nested `metadata` object.
+Missing fields are omitted.
 
 ## Universal JSON GET
 
@@ -82,6 +170,8 @@ front api get /conversations/cnv_123/events --limit 10
 front api get /contacts --param q=alice --param limit=25
 front api get /teammates/alt:email:user@example.com/inboxes
 ```
+
+Its `--limit <number>` option also accepts integers from 1 through 100.
 
 The path must start with exactly one `/`. Front CLI rejects:
 
@@ -107,8 +197,23 @@ front list tag --limit 25 --param q=alice --param sort_by=created_at \
 ```
 
 In an action parameter, pass `value` once and repeat the flag once for each item
-in `values`. This preserves the original limit, filters, arbitrary parameters,
-and replacement page token without reconstructing them from a URL. See
+in `values`. A parameter with neither is an active boolean switch and should be
+passed once without a following value. This preserves an explicitly supplied
+`--profile`, the original limit, filters, arbitrary parameters, local output
+controls, and replacement page token without reconstructing them from a URL.
+Default or automatically selected profiles are not converted into an explicit
+flag. The compact `inboxes`, `inbox`, and `read` navigation and refresh actions
+use the same rule.
+
+Structured `--limit` values stay structured, while a `limit=...` supplied with
+`--param` remains a repeated passthrough value. For `api get`, a structured
+`--page-token` origin remains structured; a passthrough-only
+`--param page_token=...` origin remains passthrough. Structured wins when both
+origins are present, and an API request without an old token uses the
+structured `--page-token` action shape. Stale passthrough tokens are removed in
+the structured cases. Resource commands use `--page-token` when their CLI
+capability supports it and `--param page_token=<new-token>` otherwise.
+Generated continuations remain valid input to the normal CLI parser. See
 [Output format](output-format.md) for the complete action schema.
 
 ## Shell completion

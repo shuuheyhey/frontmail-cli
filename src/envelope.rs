@@ -38,6 +38,45 @@ pub struct Action {
     pub params: BTreeMap<String, ParamSpec>,
 }
 
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct ActionContext {
+    explicit_profile: Option<String>,
+}
+
+impl ActionContext {
+    pub fn from_explicit_profile(profile: Option<&str>) -> Self {
+        Self {
+            explicit_profile: profile.map(str::to_owned),
+        }
+    }
+
+    pub fn explicit_profile(&self) -> Option<&str> {
+        self.explicit_profile.as_deref()
+    }
+
+    pub fn action(
+        &self,
+        command: impl Into<String>,
+        description: impl Into<String>,
+        mut params: BTreeMap<String, ParamSpec>,
+    ) -> Action {
+        if let Some(profile) = &self.explicit_profile {
+            params.insert(
+                "--profile".into(),
+                ParamSpec {
+                    value: Some(profile.clone()),
+                    ..ParamSpec::new("Named config profile")
+                },
+            );
+        }
+        Action {
+            command: command.into(),
+            description: description.into(),
+            params,
+        }
+    }
+}
+
 #[derive(Debug, Serialize)]
 pub struct Success<T> {
     pub ok: bool,

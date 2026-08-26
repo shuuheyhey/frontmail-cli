@@ -40,6 +40,14 @@ front whoami
 front inboxes
 ```
 
+For multiple Front accounts or environments, define named profiles in the
+config file and select one globally with `front --profile <name> <command>` or
+`front <command> --profile <name>`. Explicit profiles are isolated from
+`FRONT_API_TOKEN`, `FRONT_USER`, and legacy top-level credentials. See
+[Configuration and secret handling](docs/configuration.md) for the schema and
+selection order. Profile names must contain a non-whitespace character and are
+matched exactly without trimming.
+
 Run `front` with no arguments to get the machine-readable command catalog and
 its `next_actions`.
 
@@ -49,6 +57,7 @@ its `next_actions`.
 |---|---|
 | `front` | Return the command catalog |
 | `front config` | Show configuration state without exposing the token |
+| `front doctor` | Run redacted authentication and read-scope diagnostics |
 | `front inboxes` | List available inboxes |
 | `front inbox [inbox-id]` | Search conversations |
 | `front read <conversation-id>` | Read a compact conversation thread |

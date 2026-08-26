@@ -119,7 +119,7 @@ impl FrontClient {
     ) -> Result<serde_json::Value, ClientError> {
         let segments: Vec<_> = segments.iter().map(String::as_str).collect();
         let mut url = self.url(&segments)?;
-        {
+        if !query.is_empty() {
             let mut pairs = url.query_pairs_mut();
             for (name, value) in query {
                 pairs.append_pair(name, value);
@@ -264,12 +264,12 @@ fn has_valid_percent_escapes(value: &str) -> bool {
     let mut index = 0;
     while index < bytes.len() {
         if bytes[index] == b'%' {
-            if !bytes
+            if bytes
                 .get(index + 1)
-                .is_some_and(|byte| hex_value(*byte).is_some())
-                || !bytes
+                .is_none_or(|byte| hex_value(*byte).is_none())
+                || bytes
                     .get(index + 2)
-                    .is_some_and(|byte| hex_value(*byte).is_some())
+                    .is_none_or(|byte| hex_value(*byte).is_none())
             {
                 return false;
             }
