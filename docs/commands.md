@@ -198,9 +198,11 @@ front list tag --limit 25 --param q=alice --param sort_by=created_at \
 
 In an action parameter, pass `value` once and repeat the flag once for each item
 in `values`. A parameter with neither is an active boolean switch and should be
-passed once without a following value. This preserves the original limit,
-filters, arbitrary parameters, local output controls, and replacement page
-token without reconstructing them from a URL. See
+passed once without a following value. This preserves an explicitly supplied
+`--profile`, the original limit, filters, arbitrary parameters, local output
+controls, and replacement page token without reconstructing them from a URL.
+Default or automatically selected profiles are not converted into an explicit
+flag. See
 [Output format](output-format.md) for the complete action schema.
 
 ## Shell completion

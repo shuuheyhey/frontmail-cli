@@ -193,12 +193,21 @@ pub struct CompletionArgs {
 }
 
 pub fn prepare_read_request(command: &Commands) -> Result<Option<ReadRequest>, ResourceError> {
+    prepare_read_request_with_profile(command, None)
+}
+
+pub fn prepare_read_request_with_profile(
+    command: &Commands,
+    profile: Option<&str>,
+) -> Result<Option<ReadRequest>, ResourceError> {
+    let profile = profile.map(str::to_owned);
     let request = match command {
         Commands::Whoami => ReadRequest {
             command: "front whoami".into(),
             segments: vec!["me".into()],
             query: vec![],
             pagination_command: None,
+            profile: profile.clone(),
             output: OutputOptions::default(),
         },
         Commands::Api(ApiArgs {
@@ -208,6 +217,7 @@ pub fn prepare_read_request(command: &Commands) -> Result<Option<ReadRequest>, R
             segments: validate_api_path(&args.path)?,
             query: build_query(&args.query)?,
             pagination_command: Some(format!("front api get {}", args.path)),
+            profile: profile.clone(),
             output: (&args.output).into(),
         },
         Commands::List(args) => {
@@ -219,6 +229,7 @@ pub fn prepare_read_request(command: &Commands) -> Result<Option<ReadRequest>, R
                 segments,
                 query: build_query(&args.query)?,
                 pagination_command: Some(format!("front list {}", resource.name())),
+                profile: profile.clone(),
                 output: (&args.output).into(),
             }
         }
@@ -229,6 +240,7 @@ pub fn prepare_read_request(command: &Commands) -> Result<Option<ReadRequest>, R
                 segments: resource.item_segments(&args.id)?,
                 query: parse_query_pairs(&args.params)?,
                 pagination_command: None,
+                profile: profile.clone(),
                 output: (&args.output).into(),
             }
         }
@@ -249,6 +261,7 @@ pub fn prepare_read_request(command: &Commands) -> Result<Option<ReadRequest>, R
                     args.id,
                     args.relation
                 )),
+                profile,
                 output: (&args.output).into(),
             }
         }

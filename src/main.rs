@@ -2,7 +2,7 @@ use clap::{CommandFactory, Parser, error::ErrorKind};
 use clap_complete::generate;
 use frontmail_cli::{
     VERSION,
-    cli::{Cli, Commands, prepare_read_request},
+    cli::{Cli, Commands, prepare_read_request_with_profile},
     client::{ClientError, FrontClient, classify_http},
     commands::{
         CommandError, DoctorAuthenticationError, InboxOptions, ReadRequest, doctor_json,
@@ -77,7 +77,7 @@ async fn main() {
             );
         }
         Some(command) => {
-            let request = match prepare_read_request(&command) {
+            let request = match prepare_read_request_with_profile(&command, profile.as_deref()) {
                 Ok(request) => request,
                 Err(error) => {
                     let command = match &error {
@@ -515,6 +515,50 @@ mod tests {
         );
         for value in [PROFILE_USER, COMMAND_ARG, AMBIENT_TOKEN] {
             assert!(!presentation.fix.contains(value));
+        }
+    }
+
+    #[test]
+    fn named_profile_doctor_http_401_is_sanitized_and_profile_aware() {
+        const PROFILE_USER: &str = "doctor-profile-user-must-not-appear";
+        const COMMAND_ARG: &str = "doctor-profile-command-argument-must-not-appear";
+        const AMBIENT_TOKEN: &str = "doctor-ambient-token-must-not-appear";
+        let loaded = config::Config {
+            profiles: BTreeMap::from([(
+                "work".into(),
+                config::Profile {
+                    token_command: vec!["program".into(), COMMAND_ARG.into()],
+                    user: PROFILE_USER.into(),
+                },
+            )]),
+            ..config::Config::default()
+        };
+        let env = BTreeMap::from([("FRONT_API_TOKEN".into(), AMBIENT_TOKEN.into())]);
+        let selected = config::select_effective_config(&loaded, &env, Some("work")).unwrap();
+        let error = CommandError::DoctorAuthentication(DoctorAuthenticationError::Http {
+            status: StatusCode::UNAUTHORIZED.as_u16(),
+        });
+        let json = command_error_json(
+            "front doctor",
+            &error,
+            Path::new("/config/front/config.yaml"),
+            selected.auth_context(),
+        )
+        .unwrap();
+        let actual: Value = serde_json::from_str(&json).unwrap();
+
+        assert_eq!(actual["command"], "front doctor");
+        assert_eq!(actual["error"]["code"], "UNAUTHORIZED");
+        assert_eq!(
+            actual["error"]["message"],
+            "doctor authentication check failed (HTTP 401)"
+        );
+        assert_eq!(
+            actual["fix"],
+            "Configure token_command for profile \"work\" in /config/front/config.yaml"
+        );
+        for value in [PROFILE_USER, COMMAND_ARG, AMBIENT_TOKEN] {
+            assert!(!json.contains(value));
         }
     }
 

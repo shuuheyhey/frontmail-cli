@@ -49,6 +49,7 @@ async fn collection_envelope_preserves_data_and_builds_pagination_action() {
                 ("page_token".into(), "current".into()),
             ],
             pagination_command: Some("front list tags".into()),
+            profile: None,
             output: Default::default(),
         },
     )
@@ -93,6 +94,7 @@ async fn item_envelope_omits_collection_metadata() {
             segments: vec!["tags".into(), "tag_1".into()],
             query: vec![],
             pagination_command: None,
+            profile: None,
             output: Default::default(),
         },
     )
@@ -120,6 +122,7 @@ async fn execute_body(body: Value, output: OutputOptions) -> Value {
             segments: vec!["example".into()],
             query: vec![],
             pagination_command: None,
+            profile: None,
             output,
         },
     )
@@ -469,6 +472,7 @@ async fn pagination_actions_preserve_active_output_flags() {
             segments: vec!["tags".into()],
             query: vec![],
             pagination_command: Some("front list tag".into()),
+            profile: None,
             output: OutputOptions {
                 fields: vec!["id".into(), "name".into()],
                 max_items: Some(1),
@@ -488,6 +492,53 @@ async fn pagination_actions_preserve_active_output_flags() {
         actual["next_actions"][0]["params"]["--max-items"]["value"],
         "1"
     );
+}
+
+#[tokio::test]
+async fn pagination_action_preserves_profile_limit_and_local_output_controls() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/tags"))
+        .and(query_param("limit", "100"))
+        .and(query_param("page_token", "current"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "_results": [{"id": "tag_1", "name": "Urgent"}],
+            "_pagination": {
+                "next": "https://api2.frontapp.com/tags?page_token=next"
+            }
+        })))
+        .mount(&server)
+        .await;
+
+    let output = execute_read(
+        &client(&server),
+        ReadRequest {
+            command: "front list tag".into(),
+            segments: vec!["tags".into()],
+            query: vec![
+                ("limit".into(), "100".into()),
+                ("page_token".into(), "current".into()),
+            ],
+            pagination_command: Some("front list tag".into()),
+            profile: Some("work".into()),
+            output: OutputOptions {
+                fields: vec!["id".into(), "name".into()],
+                max_items: Some(2),
+                ..OutputOptions::default()
+            },
+        },
+    )
+    .await
+    .unwrap();
+    let actual: Value = serde_json::from_str(&output).unwrap();
+    let action = &actual["next_actions"][0];
+
+    assert_eq!(action["command"], "front list tag");
+    assert_eq!(action["params"]["--profile"]["value"], "work");
+    assert_eq!(action["params"]["--limit"]["value"], "100");
+    assert_eq!(action["params"]["--fields"]["value"], "id,name");
+    assert_eq!(action["params"]["--max-items"]["value"], "2");
+    assert_eq!(action["params"]["--page-token"]["value"], "next");
 }
 
 #[tokio::test]
@@ -511,6 +562,7 @@ async fn pagination_action_preserves_count_only_as_a_bare_switch() {
             segments: vec!["tags".into()],
             query: vec![],
             pagination_command: Some("front list tag".into()),
+            profile: None,
             output: OutputOptions {
                 count_only: true,
                 ..OutputOptions::default()

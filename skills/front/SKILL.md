@@ -24,8 +24,9 @@ returned `error.code` and `fix` rather than parsing prose.
 
 When `result.next_page_token` exists, execute the matching `next_actions`
 entry. Preserve every structured parameter: pass `value` once and repeat a
-flag once for each item in `values`. Do not drop filters, limits, or arbitrary
-`--param key=value` values between pages.
+flag once for each item in `values`. Do not drop an explicit profile, filters,
+limits, local output controls, or arbitrary `--param key=value` values between
+pages.
 
 ```bash
 front list tag --limit 25 --param q=urgent

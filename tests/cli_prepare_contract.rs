@@ -1,6 +1,6 @@
 use clap::{Parser, error::ErrorKind};
 use frontmail_cli::{
-    cli::{Cli, prepare_read_request},
+    cli::{Cli, prepare_read_request, prepare_read_request_with_profile},
     commands::OutputOptions,
 };
 
@@ -257,5 +257,72 @@ fn compact_reads_do_not_accept_generic_output_flags() {
         ["front", "inboxes", "--keys-only"],
     ] {
         assert!(Cli::try_parse_from(args).is_err());
+    }
+}
+
+#[test]
+fn profile_and_output_flags_prepare_the_same_paginated_request_in_global_positions() {
+    let cases = [
+        vec![
+            "front",
+            "--profile",
+            "work",
+            "list",
+            "tags",
+            "--limit",
+            "100",
+            "--fields",
+            "id,name",
+            "--max-items",
+            "2",
+        ],
+        vec![
+            "front",
+            "list",
+            "tags",
+            "--limit",
+            "100",
+            "--fields",
+            "id,name",
+            "--max-items",
+            "2",
+            "--profile",
+            "work",
+        ],
+        vec![
+            "front",
+            "api",
+            "get",
+            "/tags",
+            "--profile",
+            "work",
+            "--limit",
+            "100",
+            "--fields",
+            "id,name",
+            "--max-items",
+            "2",
+        ],
+    ];
+
+    for args in cases {
+        let cli = Cli::try_parse_from(args).unwrap();
+        let request = prepare_read_request_with_profile(
+            cli.command.as_ref().unwrap(),
+            cli.profile.as_deref(),
+        )
+        .unwrap()
+        .unwrap();
+
+        assert_eq!(request.profile.as_deref(), Some("work"));
+        assert_eq!(request.query, [("limit".into(), "100".into())]);
+        assert_eq!(
+            request.output,
+            OutputOptions {
+                fields: vec!["id".into(), "name".into()],
+                max_items: Some(2),
+                ..OutputOptions::default()
+            }
+        );
     }
 }

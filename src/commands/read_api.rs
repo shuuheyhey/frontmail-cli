@@ -25,6 +25,7 @@ pub struct ReadRequest {
     pub segments: Vec<String>,
     pub query: Vec<(String, String)>,
     pub pagination_command: Option<String>,
+    pub profile: Option<String>,
     pub output: OutputOptions,
 }
 
@@ -74,7 +75,12 @@ pub async fn execute_read(
         (Some(command), Some(token)) => vec![Action {
             command: command.clone(),
             description: "Next page of results".into(),
-            params: pagination_params(&request.query, &request.output, token),
+            params: pagination_params(
+                &request.query,
+                request.profile.as_deref(),
+                &request.output,
+                token,
+            ),
         }],
         _ => vec![],
     };
@@ -235,6 +241,7 @@ fn object_fields(value: Value, fields: &[String]) -> Value {
 
 fn pagination_params(
     query: &[(String, String)],
+    profile: Option<&str>,
     output: &OutputOptions,
     next_token: &str,
 ) -> BTreeMap<String, ParamSpec> {
@@ -262,6 +269,15 @@ fn pagination_params(
             ParamSpec {
                 values: repeated,
                 ..ParamSpec::new("Additional query parameters; repeat this flag for each value")
+            },
+        );
+    }
+    if let Some(profile) = profile {
+        params.insert(
+            "--profile".into(),
+            ParamSpec {
+                value: Some(profile.into()),
+                ..ParamSpec::new("Named config profile")
             },
         );
     }
@@ -313,6 +329,7 @@ pub async fn whoami_json(client: &FrontClient) -> Result<String, CommandError> {
             segments: vec!["me".into()],
             query: vec![],
             pagination_command: None,
+            profile: None,
             output: OutputOptions::default(),
         },
     )

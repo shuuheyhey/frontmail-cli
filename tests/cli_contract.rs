@@ -400,6 +400,8 @@ fn every_authenticated_command_uses_the_selected_profile_without_ambient_fallbac
     .unwrap();
 
     let cases: &[(&[&str], &str)] = &[
+        (&["doctor", "--profile", "isolated"], "front doctor"),
+        (&["--profile", "isolated", "doctor"], "front doctor"),
         (&["inboxes", "--profile", "isolated"], "front inboxes"),
         (&["inbox", "--profile", "isolated"], "front inbox"),
         (&["read", "cnv_test", "--profile", "isolated"], "front read"),

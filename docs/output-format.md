@@ -114,7 +114,10 @@ legacy behavior above and only derives `count` from an `_results` array.
 A parameter with `value` is passed once. A parameter with `values` is repeated
 once for each array item. A parameter with neither represents a bare boolean
 switch. Pagination actions preserve filters, arbitrary query parameters, and
-active generic output controls.
+active generic output controls. When the original command explicitly supplied
+`--profile`, the action also retains it as `--profile.value`. Default and
+single-profile automatic selections remain implicit and are not added as a
+new flag.
 
 ### Projected and bounded results
 
