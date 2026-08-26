@@ -182,15 +182,15 @@ impl FrontClient {
             .to_str()
             .ok()?;
         let target = current_url.join(location).ok()?;
-        if redirect_location_has_traversal(location)
+        if !redirect_location_path_is_safe(location)
             || target.fragment().is_some()
             || !self.redirect_origin_is_approved(&target)
         {
             return None;
         }
-        let segments = validate_api_path(target.path()).ok()?;
-        let segment_refs: Vec<_> = segments.iter().map(String::as_str).collect();
-        let mut approved = self.url(&segment_refs).ok()?;
+        validate_api_path(target.path()).ok()?;
+        let mut approved = self.base_url.clone();
+        approved.set_path(target.path());
         approved.set_query(target.query());
         Some(approved)
     }
@@ -212,7 +212,7 @@ impl FrontClient {
     }
 }
 
-fn redirect_location_has_traversal(location: &str) -> bool {
+fn redirect_location_path_is_safe(location: &str) -> bool {
     let path_and_query = if let Some(scheme) = location.find("://") {
         let authority_and_path = &location[scheme + 3..];
         let Some(path_start) = authority_and_path.find(['/', '?', '#']) else {
@@ -222,10 +222,47 @@ fn redirect_location_has_traversal(location: &str) -> bool {
     } else {
         location
     };
-    path_and_query
-        .split(['?', '#'])
-        .next()
-        .is_some_and(|path| path.split('/').any(|segment| matches!(segment, "." | "..")))
+    path_and_query.split(['?', '#']).next().is_some_and(|path| {
+        !path.is_empty() && path.split('/').all(redirect_location_segment_is_safe)
+    })
+}
+
+fn redirect_location_segment_is_safe(segment: &str) -> bool {
+    let mut decoded = Vec::with_capacity(segment.len());
+    let bytes = segment.as_bytes();
+    let mut index = 0;
+    while index < bytes.len() {
+        if bytes[index] == b'%' {
+            let Some(high) = bytes.get(index + 1).and_then(|byte| hex_value(*byte)) else {
+                return false;
+            };
+            let Some(low) = bytes.get(index + 2).and_then(|byte| hex_value(*byte)) else {
+                return false;
+            };
+            decoded.push(high << 4 | low);
+            index += 3;
+        } else {
+            decoded.push(bytes[index]);
+            index += 1;
+        }
+    }
+
+    let Ok(decoded) = std::str::from_utf8(&decoded) else {
+        return false;
+    };
+    !decoded.chars().any(char::is_control)
+        && !decoded.contains(['/', '\\'])
+        && !matches!(decoded, "." | "..")
+        && !decoded.eq_ignore_ascii_case("download")
+}
+
+fn hex_value(byte: u8) -> Option<u8> {
+    match byte {
+        b'0'..=b'9' => Some(byte - b'0'),
+        b'a'..=b'f' => Some(byte - b'a' + 10),
+        b'A'..=b'F' => Some(byte - b'A' + 10),
+        _ => None,
+    }
 }
 
 fn api_error_message(body: &[u8]) -> Option<String> {
@@ -270,13 +307,26 @@ mod tests {
     use super::FrontClient;
 
     #[test]
-    fn production_redirect_alias_requires_the_default_https_port() {
+    fn production_redirect_alias_approval_requires_https_on_the_default_port() {
         let client =
             FrontClient::production(SecretString::from("test-token"), "front/test").unwrap();
 
         for location in [
+            "https://api2.frontapp.com/new",
+            "https://company.api.frontapp.com/new",
+        ] {
+            let target = Url::parse(location).unwrap();
+            assert!(
+                client.redirect_origin_is_approved(&target),
+                "rejected approved redirect target {location}"
+            );
+        }
+
+        for location in [
             "https://api2.frontapp.com:444/new",
             "https://company.api.frontapp.com:444/new",
+            "http://api2.frontapp.com/new",
+            "https://api.frontapp.com/new",
         ] {
             let target = Url::parse(location).unwrap();
             assert!(
