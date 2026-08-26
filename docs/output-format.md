@@ -103,6 +103,14 @@ the current response. Item and other non-collection JSON responses omit
 `count`. When `_pagination.next` contains a page token, the result includes
 `next_page_token` and a corresponding next action.
 
+With a local output control active, the transformer recognizes two collection
+shapes. A response object whose `_results` value is an array is a wrapped
+collection; projection keeps the `_results` wrapper. A top-level JSON array is
+an unwrapped collection; projection keeps it as a top-level array and does not
+introduce an `_results` object. In both cases, `count` is the size before local
+truncation and `returned` is the size afterward. Default output retains the
+legacy behavior above and only derives `count` from an `_results` array.
+
 A parameter with `value` is passed once. A parameter with `values` is repeated
 once for each array item. A parameter with neither represents a bare boolean
 switch. Pagination actions preserve filters, arbitrary query parameters, and
@@ -115,7 +123,7 @@ metadata only when a local output option is active:
 
 | Field | Meaning |
 |---|---|
-| `count` | Original decoded collection size before local truncation; omitted for non-collections |
+| `count` | Original decoded `_results` array or top-level array size before local truncation; omitted for non-collections |
 | `returned` | Number of collection items or the single projected item left in `data`; always `0` for count-only output |
 | `projection` | Projection mode and, for field projection, the requested literal field names |
 | `truncated` | `true` only when `--max-items` removed collection items |
@@ -130,9 +138,9 @@ Count-only output omits `data`:
 }
 ```
 
-Keys-only output replaces objects with sorted key arrays. For a collection,
-the `_results` wrapper remains but response values and the original pagination
-object are not copied into `data`:
+Keys-only output replaces objects with sorted key arrays. For a wrapped
+collection, the `_results` wrapper remains but response values and the original
+pagination object are not copied into `data`:
 
 ```json
 {
@@ -148,6 +156,19 @@ object are not copied into `data`:
 }
 ```
 
+For a top-level array, keys-only output remains a top-level array:
+
+```json
+{
+  "data": [
+    ["id", "name"]
+  ],
+  "count": 1,
+  "returned": 1,
+  "projection": { "mode": "keys-only" }
+}
+```
+
 Field projection uses a stable tagged form:
 
 ```json
@@ -160,6 +181,11 @@ Field projection uses a stable tagged form:
   }
 }
 ```
+
+For a wrapped collection, field projection applies to every object in
+`data._results` and retains that wrapper. For a top-level array, it applies to
+every array item and keeps `data` as an array. `--max-items` truncates the same
+recognized collection shape without converting one shape into the other.
 
 `--count-only` and `--keys-only` keep customer response values out of
 `result.data`; they are not complete redaction modes. Counts, key names,

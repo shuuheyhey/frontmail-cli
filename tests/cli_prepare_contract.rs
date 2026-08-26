@@ -1,4 +1,4 @@
-use clap::Parser;
+use clap::{Parser, error::ErrorKind};
 use frontmail_cli::{
     cli::{Cli, prepare_read_request},
     commands::OutputOptions,
@@ -231,11 +231,15 @@ fn count_and_key_modes_prepare_distinct_output_options() {
 #[test]
 fn incompatible_output_modes_are_rejected_by_cli_parsing() {
     for args in [
-        ["front", "list", "tags", "--count-only", "--keys-only"],
-        ["front", "list", "tags", "--count-only", "--fields"],
-        ["front", "list", "tags", "--keys-only", "--fields"],
+        vec!["front", "list", "tags", "--count-only", "--keys-only"],
+        vec!["front", "list", "tags", "--count-only", "--fields", "id"],
+        vec!["front", "list", "tags", "--keys-only", "--fields", "id"],
+        vec!["front", "list", "tags", "--count-only", "--max-items", "1"],
     ] {
-        assert!(Cli::try_parse_from(args).is_err());
+        let Err(error) = Cli::try_parse_from(args) else {
+            panic!("incompatible output modes were accepted")
+        };
+        assert_eq!(error.kind(), ErrorKind::ArgumentConflict);
     }
 }
 

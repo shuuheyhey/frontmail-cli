@@ -298,6 +298,118 @@ async fn max_items_truncates_locally_but_keeps_the_original_count() {
 }
 
 #[tokio::test]
+async fn max_items_preserves_the_top_level_array_shape_and_original_count() {
+    let actual = execute_body(
+        serde_json::json!([
+            {"id": 1, "name": "one"},
+            {"id": 2, "name": "two"},
+            {"id": 3, "name": "three"}
+        ]),
+        OutputOptions {
+            max_items: Some(2),
+            ..OutputOptions::default()
+        },
+    )
+    .await;
+
+    assert_eq!(
+        actual["result"],
+        serde_json::json!({
+            "data": [
+                {"id": 1, "name": "one"},
+                {"id": 2, "name": "two"}
+            ],
+            "count": 3,
+            "returned": 2,
+            "truncated": true
+        })
+    );
+}
+
+#[tokio::test]
+async fn keys_only_preserves_top_level_array_shape_and_reports_counts() {
+    let actual = execute_body(
+        serde_json::json!([
+            {"zeta": "Customer value", "alpha": 1},
+            {"id": "tag_1"}
+        ]),
+        OutputOptions {
+            keys_only: true,
+            ..OutputOptions::default()
+        },
+    )
+    .await;
+
+    assert_eq!(
+        actual["result"],
+        serde_json::json!({
+            "data": [
+                ["alpha", "zeta"],
+                ["id"]
+            ],
+            "count": 2,
+            "returned": 2,
+            "projection": {"mode": "keys-only"}
+        })
+    );
+}
+
+#[tokio::test]
+async fn fields_preserves_top_level_array_shape_and_reports_counts() {
+    let actual = execute_body(
+        serde_json::json!([
+            {"id": "tag_1", "name": "Urgent", "ignored": true},
+            {"id": "tag_2", "ignored": true}
+        ]),
+        OutputOptions {
+            fields: vec!["id".into(), "name".into()],
+            ..OutputOptions::default()
+        },
+    )
+    .await;
+
+    assert_eq!(
+        actual["result"],
+        serde_json::json!({
+            "data": [
+                {"id": "tag_1", "name": "Urgent"},
+                {"id": "tag_2"}
+            ],
+            "count": 2,
+            "returned": 2,
+            "projection": {
+                "mode": "fields",
+                "fields": ["id", "name"]
+            }
+        })
+    );
+}
+
+#[tokio::test]
+async fn count_only_omits_top_level_array_data_and_reports_counts() {
+    let actual = execute_body(
+        serde_json::json!([
+            {"id": "tag_1", "name": "Customer value one"},
+            {"id": "tag_2", "name": "Customer value two"}
+        ]),
+        OutputOptions {
+            count_only: true,
+            ..OutputOptions::default()
+        },
+    )
+    .await;
+
+    assert_eq!(
+        actual["result"],
+        serde_json::json!({
+            "count": 2,
+            "returned": 0,
+            "projection": {"mode": "count-only"}
+        })
+    );
+}
+
+#[tokio::test]
 async fn projections_handle_empty_collections_missing_fields_and_non_objects() {
     let empty = execute_body(
         serde_json::json!({"_results": []}),
@@ -376,6 +488,50 @@ async fn pagination_actions_preserve_active_output_flags() {
         actual["next_actions"][0]["params"]["--max-items"]["value"],
         "1"
     );
+}
+
+#[tokio::test]
+async fn pagination_action_preserves_count_only_as_a_bare_switch() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/tags"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "_results": [{"id": "tag_1", "name": "Customer value"}],
+            "_pagination": {
+                "next": "https://api2.frontapp.com/tags?page_token=next"
+            }
+        })))
+        .mount(&server)
+        .await;
+
+    let output = execute_read(
+        &client(&server),
+        ReadRequest {
+            command: "front list tag".into(),
+            segments: vec!["tags".into()],
+            query: vec![],
+            pagination_command: Some("front list tag".into()),
+            output: OutputOptions {
+                count_only: true,
+                ..OutputOptions::default()
+            },
+        },
+    )
+    .await
+    .unwrap();
+    let actual: Value = serde_json::from_str(&output).unwrap();
+    let params = actual["next_actions"][0]["params"].as_object().unwrap();
+    let count_only = params["--count-only"].as_object().unwrap();
+
+    assert_eq!(
+        Value::Object(count_only.clone()),
+        serde_json::json!({
+            "description": "Return collection counts without response data"
+        })
+    );
+    assert!(!count_only.contains_key("value"));
+    assert!(!count_only.contains_key("values"));
+    assert_eq!(params["--page-token"]["value"], "next");
 }
 
 #[tokio::test]
