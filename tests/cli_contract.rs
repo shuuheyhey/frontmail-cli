@@ -166,6 +166,56 @@ fn unknown_command_is_a_json_cli_error() {
 }
 
 #[test]
+fn zero_collection_limits_are_json_cli_errors_before_authentication() {
+    const UNRELATED_ENV_VALUE: &str = "synthetic-unrelated-environment-value";
+    let cases: [(&[&str], &str); 4] = [
+        (
+            &["list", "tags", "--limit", "0"],
+            "front list tags --limit 0",
+        ),
+        (
+            &["api", "get", "/tags", "--limit", "0"],
+            "front api get /tags --limit 0",
+        ),
+        (
+            &["related", "tag", "tag_1", "conversations", "--limit", "0"],
+            "front related tag tag_1 conversations --limit 0",
+        ),
+        (&["inbox", "--limit", "0"], "front inbox --limit 0"),
+    ];
+
+    for (args, command_name) in cases {
+        let dir = tempdir().unwrap();
+        let output = cargo_bin_cmd!("front")
+            .args(args)
+            .env("HOME", dir.path())
+            .env("XDG_CONFIG_HOME", dir.path())
+            .env("FRONT_USER", UNRELATED_ENV_VALUE)
+            .env_remove("FRONT_API_TOKEN")
+            .output()
+            .unwrap();
+
+        assert_eq!(output.status.code(), Some(1), "{command_name}");
+        assert!(output.stderr.is_empty(), "{command_name}");
+        let actual: Value = serde_json::from_slice(&output.stdout)
+            .unwrap_or_else(|error| panic!("{command_name} must emit one JSON document: {error}"));
+        assert_eq!(actual["ok"], false, "{command_name}");
+        assert_eq!(actual["error"]["code"], "CLI_ERROR", "{command_name}");
+        assert!(
+            actual["error"]["message"]
+                .as_str()
+                .unwrap()
+                .contains("1..=100"),
+            "{command_name}"
+        );
+        assert!(
+            !String::from_utf8_lossy(&output.stdout).contains(UNRELATED_ENV_VALUE),
+            "{command_name}"
+        );
+    }
+}
+
+#[test]
 fn invalid_resource_is_rejected_before_authentication() {
     let dir = tempdir().unwrap();
     let output = cargo_bin_cmd!("front")

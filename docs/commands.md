@@ -41,7 +41,7 @@ front read cnv_123
 | `--assignee <email>` | Append an assignee filter using `alt:email:` |
 | `--before <YYYY-MM-DD>` | Append a UTC upper time bound |
 | `--after <YYYY-MM-DD>` | Append a UTC lower time bound |
-| `--limit <number>` | Maximum results; default 25 |
+| `--limit <number>` | Maximum results (1 through 100); default 25 |
 
 When `--assignee` is used without an explicit query, the default changes to
 `is:open is:assigned`. An inbox ID adds `inbox:<id>` to the query.
@@ -65,7 +65,7 @@ per parent resource. See [API support](api-support.md) for the exact mappings.
 
 Collection and relation commands accept:
 
-- `--limit <number>`;
+- `--limit <number>` (1 through 100);
 - `--page-token <token>`;
 - repeatable `--param <key=value>` values.
 
@@ -82,6 +82,8 @@ front api get /conversations/cnv_123/events --limit 10
 front api get /contacts --param q=alice --param limit=25
 front api get /teammates/alt:email:user@example.com/inboxes
 ```
+
+Its `--limit <number>` option also accepts integers from 1 through 100.
 
 The path must start with exactly one `/`. Front CLI rejects:
 

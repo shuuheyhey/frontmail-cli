@@ -59,7 +59,11 @@ pub struct InboxArgs {
     #[arg(long)]
     pub after: Option<String>,
     /// Maximum number of results to return
-    #[arg(long, default_value_t = 25)]
+    #[arg(
+        long,
+        default_value_t = 25,
+        value_parser = clap::value_parser!(u32).range(1..=100)
+    )]
     pub limit: u32,
     #[arg(long, hide = true)]
     pub page_token: Option<String>,
@@ -125,7 +129,7 @@ pub struct RelatedArgs {
 #[derive(Args)]
 pub struct QueryArgs {
     /// Maximum results requested from Front
-    #[arg(long)]
+    #[arg(long, value_parser = clap::value_parser!(u32).range(1..=100))]
     pub limit: Option<u32>,
     /// Front pagination token
     #[arg(long)]

@@ -23,6 +23,7 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ### Fixed
 
+- Reject collection limits outside the inclusive range of 1 through 100.
 - Follow up to three validated HTTP 301 redirects while preserving the
   configured Front API origin.
 - Use a message's `from` recipient as the sender when its author is absent.

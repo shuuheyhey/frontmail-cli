@@ -61,3 +61,26 @@ fn item_related_and_api_requests_preserve_their_operands() {
         assert_eq!(request.command, expected);
     }
 }
+
+#[test]
+fn collection_limit_range_accepts_boundaries_and_rejects_values_outside_the_range() {
+    let cases: [(&[&str], bool); 8] = [
+        (&["front", "inbox", "--limit", "1"], true),
+        (&["front", "inbox", "--limit", "100"], true),
+        (&["front", "inbox", "--limit", "0"], false),
+        (&["front", "inbox", "--limit", "101"], false),
+        (&["front", "list", "tags", "--limit", "1"], true),
+        (&["front", "list", "tags", "--limit", "100"], true),
+        (&["front", "list", "tags", "--limit", "0"], false),
+        (&["front", "list", "tags", "--limit", "101"], false),
+    ];
+
+    for (args, should_parse) in cases {
+        assert_eq!(
+            Cli::try_parse_from(args).is_ok(),
+            should_parse,
+            "{}",
+            args.join(" ")
+        );
+    }
+}
