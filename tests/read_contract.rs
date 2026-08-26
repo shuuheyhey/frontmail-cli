@@ -43,6 +43,16 @@ async fn read_fetches_conversation_and_messages_and_truncates_utf8_safely() {
                 "id": "msg_2",
                 "text": "",
                 "body": "Body fallback"
+            }, {
+                // Chat message: Front omits the author and identifies the sender in recipients.
+                "id": "msg_chat",
+                "author": null,
+                "recipients": [
+                    {"name": "Visitor", "handle": "visitor-123", "role": "from"},
+                    {"name": "Support", "handle": "support", "role": "to"}
+                ],
+                "text": "Hello",
+                "is_inbound": true
             }],
             "_pagination": {"next": "https://api2.frontapp.com/messages?page_token=next"}
         })))
@@ -58,6 +68,10 @@ async fn read_fetches_conversation_and_messages_and_truncates_utf8_safely() {
     assert!(text.ends_with("... [truncated]"));
     assert!(text.len() <= 500 + "... [truncated]".len());
     assert_eq!(actual["result"]["messages"][1]["text"], "Body fallback");
+    assert_eq!(
+        actual["result"]["messages"][2]["from"],
+        serde_json::json!({"handle": "visitor-123", "name": "Visitor"})
+    );
     assert_eq!(
         actual["next_actions"][0]["params"]["conversation-id"]["value"],
         "cnv_1"

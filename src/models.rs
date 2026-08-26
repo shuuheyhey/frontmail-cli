@@ -52,6 +52,8 @@ pub struct RecipientResponse {
     pub handle: String,
     #[serde(default)]
     pub name: Option<String>,
+    #[serde(default)]
+    pub role: String,
 }
 
 #[derive(Clone, Debug, Default, Deserialize)]
@@ -76,6 +78,8 @@ pub struct MessageResponse {
     pub id: Option<String>,
     #[serde(default)]
     pub author: Option<TeammateResponse>,
+    #[serde(default)]
+    pub recipients: Vec<RecipientResponse>,
     #[serde(default)]
     pub created_at: Option<f64>,
     #[serde(default)]

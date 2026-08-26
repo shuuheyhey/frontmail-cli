@@ -331,11 +331,24 @@ fn map_conversation(conversation: ConversationResponse) -> ConversationSummary {
 }
 
 fn map_message(message: MessageResponse) -> MessageSummary {
-    let from = message.author.map(|author| ContactSummary {
-        name: full_name(&author.first_name, &author.last_name),
-        email: author.email,
-        ..ContactSummary::default()
-    });
+    let from = message
+        .author
+        .map(|author| ContactSummary {
+            name: full_name(&author.first_name, &author.last_name),
+            email: author.email,
+            ..ContactSummary::default()
+        })
+        .or_else(|| {
+            message
+                .recipients
+                .into_iter()
+                .find(|recipient| recipient.role == "from")
+                .map(|recipient| ContactSummary {
+                    handle: recipient.handle,
+                    name: recipient.name.unwrap_or_default(),
+                    ..ContactSummary::default()
+                })
+        });
     let body = message
         .text
         .filter(|text| !text.is_empty())
