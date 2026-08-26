@@ -2,7 +2,7 @@ use clap::{Args, Parser, Subcommand};
 use clap_complete::Shell;
 
 use crate::{
-    commands::ReadRequest,
+    commands::{OutputOptions, ReadRequest},
     resources::{Resource, ResourceError, parse_query_pairs, related_segments, validate_api_path},
 };
 
@@ -98,6 +98,8 @@ pub struct ApiGetArgs {
     pub path: String,
     #[command(flatten)]
     pub query: QueryArgs,
+    #[command(flatten)]
+    pub output: OutputArgs,
 }
 
 #[derive(Args)]
@@ -106,6 +108,8 @@ pub struct ListArgs {
     pub resource: String,
     #[command(flatten)]
     pub query: QueryArgs,
+    #[command(flatten)]
+    pub output: OutputArgs,
 }
 
 #[derive(Args)]
@@ -117,6 +121,8 @@ pub struct GetArgs {
     /// Additional query parameter as key=value
     #[arg(long = "param")]
     pub params: Vec<String>,
+    #[command(flatten)]
+    pub output: OutputArgs,
 }
 
 #[derive(Args)]
@@ -129,6 +135,8 @@ pub struct RelatedArgs {
     pub relation: String,
     #[command(flatten)]
     pub query: QueryArgs,
+    #[command(flatten)]
+    pub output: OutputArgs,
 }
 
 #[derive(Args)]
@@ -144,6 +152,40 @@ pub struct QueryArgs {
     pub params: Vec<String>,
 }
 
+#[derive(Args, Default)]
+pub struct OutputArgs {
+    /// Return collection counts without response data
+    #[arg(long, conflicts_with_all = ["keys_only", "fields", "max_items"])]
+    pub count_only: bool,
+    /// Return sorted object keys without object values
+    #[arg(long, conflicts_with = "fields")]
+    pub keys_only: bool,
+    /// Keep only these literal top-level fields, separated by commas
+    #[arg(long, value_delimiter = ',')]
+    pub fields: Vec<String>,
+    /// Maximum number of decoded collection items to return locally
+    #[arg(long, value_parser = parse_positive_usize)]
+    pub max_items: Option<usize>,
+}
+
+fn parse_positive_usize(value: &str) -> Result<usize, String> {
+    match value.parse::<usize>() {
+        Ok(value) if value > 0 => Ok(value),
+        _ => Err("must be a positive integer".into()),
+    }
+}
+
+impl From<&OutputArgs> for OutputOptions {
+    fn from(args: &OutputArgs) -> Self {
+        Self {
+            count_only: args.count_only,
+            keys_only: args.keys_only,
+            fields: args.fields.clone(),
+            max_items: args.max_items,
+        }
+    }
+}
+
 #[derive(Args)]
 pub struct CompletionArgs {
     /// Shell whose completion script should be generated
@@ -157,6 +199,7 @@ pub fn prepare_read_request(command: &Commands) -> Result<Option<ReadRequest>, R
             segments: vec!["me".into()],
             query: vec![],
             pagination_command: None,
+            output: OutputOptions::default(),
         },
         Commands::Api(ApiArgs {
             action: ApiAction::Get(args),
@@ -165,6 +208,7 @@ pub fn prepare_read_request(command: &Commands) -> Result<Option<ReadRequest>, R
             segments: validate_api_path(&args.path)?,
             query: build_query(&args.query)?,
             pagination_command: Some(format!("front api get {}", args.path)),
+            output: (&args.output).into(),
         },
         Commands::List(args) => {
             let resource = Resource::parse(&args.resource)?;
@@ -175,6 +219,7 @@ pub fn prepare_read_request(command: &Commands) -> Result<Option<ReadRequest>, R
                 segments,
                 query: build_query(&args.query)?,
                 pagination_command: Some(format!("front list {}", resource.name())),
+                output: (&args.output).into(),
             }
         }
         Commands::Get(args) => {
@@ -184,6 +229,7 @@ pub fn prepare_read_request(command: &Commands) -> Result<Option<ReadRequest>, R
                 segments: resource.item_segments(&args.id)?,
                 query: parse_query_pairs(&args.params)?,
                 pagination_command: None,
+                output: (&args.output).into(),
             }
         }
         Commands::Related(args) => {
@@ -203,6 +249,7 @@ pub fn prepare_read_request(command: &Commands) -> Result<Option<ReadRequest>, R
                     args.id,
                     args.relation
                 )),
+                output: (&args.output).into(),
             }
         }
         Commands::Config

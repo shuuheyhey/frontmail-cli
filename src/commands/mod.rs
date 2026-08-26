@@ -3,7 +3,7 @@ use std::collections::BTreeMap;
 mod doctor;
 mod read_api;
 pub use doctor::{DoctorAuthenticationError, doctor_json};
-pub use read_api::{ReadRequest, execute_read, whoami_json};
+pub use read_api::{OutputOptions, ReadRequest, execute_read, whoami_json};
 
 use chrono::{DateTime, NaiveDate, SecondsFormat, Utc};
 use serde::Serialize;

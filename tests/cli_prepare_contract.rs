@@ -1,5 +1,8 @@
 use clap::Parser;
-use frontmail_cli::cli::{Cli, prepare_read_request};
+use frontmail_cli::{
+    cli::{Cli, prepare_read_request},
+    commands::OutputOptions,
+};
 
 #[test]
 fn list_request_uses_canonical_command_and_structured_query() {
@@ -75,6 +78,7 @@ fn list_request_keeps_repeatable_params_for_non_paginated_collections() {
             ("page_token".into(), "next".into()),
         ]
     );
+    assert_eq!(request.output, OutputOptions::default());
 }
 
 #[test]
@@ -124,5 +128,130 @@ fn collection_limit_range_accepts_boundaries_and_rejects_values_outside_the_rang
             "{}",
             args.join(" ")
         );
+    }
+}
+
+#[test]
+fn generic_reads_prepare_output_options_without_adding_query_pairs() {
+    let cases = [
+        vec![
+            "front",
+            "list",
+            "tags",
+            "--limit",
+            "25",
+            "--fields",
+            "id,name",
+            "--max-items",
+            "2",
+        ],
+        vec![
+            "front",
+            "get",
+            "tag",
+            "tag_1",
+            "--fields",
+            "id,name",
+            "--max-items",
+            "2",
+        ],
+        vec![
+            "front",
+            "related",
+            "conversation",
+            "cnv_1",
+            "comments",
+            "--fields",
+            "id,name",
+            "--max-items",
+            "2",
+        ],
+        vec![
+            "front",
+            "api",
+            "get",
+            "/contacts",
+            "--fields",
+            "id,name",
+            "--max-items",
+            "2",
+        ],
+    ];
+
+    for args in cases {
+        let cli = Cli::try_parse_from(args).unwrap();
+        let request = prepare_read_request(cli.command.as_ref().unwrap())
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(
+            request.output,
+            OutputOptions {
+                fields: vec!["id".into(), "name".into()],
+                max_items: Some(2),
+                ..OutputOptions::default()
+            }
+        );
+        assert!(
+            request
+                .query
+                .iter()
+                .all(|(name, _)| name != "fields" && name != "max_items")
+        );
+    }
+}
+
+#[test]
+fn count_and_key_modes_prepare_distinct_output_options() {
+    let count = Cli::try_parse_from(["front", "list", "tags", "--count-only"]).unwrap();
+    let count = prepare_read_request(count.command.as_ref().unwrap())
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        count.output,
+        OutputOptions {
+            count_only: true,
+            ..OutputOptions::default()
+        }
+    );
+
+    let keys = Cli::try_parse_from(["front", "get", "tag", "tag_1", "--keys-only"]).unwrap();
+    let keys = prepare_read_request(keys.command.as_ref().unwrap())
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        keys.output,
+        OutputOptions {
+            keys_only: true,
+            ..OutputOptions::default()
+        }
+    );
+}
+
+#[test]
+fn incompatible_output_modes_are_rejected_by_cli_parsing() {
+    for args in [
+        ["front", "list", "tags", "--count-only", "--keys-only"],
+        ["front", "list", "tags", "--count-only", "--fields"],
+        ["front", "list", "tags", "--keys-only", "--fields"],
+    ] {
+        assert!(Cli::try_parse_from(args).is_err());
+    }
+}
+
+#[test]
+fn zero_max_items_is_rejected_by_cli_parsing() {
+    let result = Cli::try_parse_from(["front", "api", "get", "/contacts", "--max-items", "0"]);
+
+    assert!(result.is_err());
+}
+
+#[test]
+fn compact_reads_do_not_accept_generic_output_flags() {
+    for args in [
+        ["front", "whoami", "--count-only"],
+        ["front", "inboxes", "--keys-only"],
+    ] {
+        assert!(Cli::try_parse_from(args).is_err());
     }
 }

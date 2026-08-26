@@ -132,6 +132,34 @@ that do not have a structured flag.
 `front get` accepts repeatable `--param <key=value>` values. Parameters split
 on the first `=` and are URL encoded as structured query pairs.
 
+### Generic output controls
+
+`front list`, `front get`, `front related`, and `front api get` accept local
+output controls. These flags do not apply to `front inbox`, `front inboxes`,
+`front read`, or `front whoami`.
+
+| Flag | Local behavior |
+|---|---|
+| `--count-only` | Omit `result.data` and report a collection's original `count` with `returned: 0` |
+| `--keys-only` | Replace each object with its sorted top-level key names and omit object values |
+| `--fields <a,b>` | Keep only the named literal top-level keys on each `_results` item or a single object |
+| `--max-items <number>` | Keep at most this many decoded collection items; the value must be greater than zero |
+
+`--count-only` is a standalone mode. `--keys-only` and `--fields` are mutually
+exclusive. `--max-items` can be used alone or with `--keys-only` or `--fields`.
+Incompatible combinations are rejected during CLI parsing, before token or
+configuration resolution.
+
+`--limit` and `--max-items` have different boundaries. `--limit` is sent to
+Front as an upstream query parameter. `--max-items` never changes the request;
+it truncates an already decoded JSON collection locally. When local truncation
+occurs, `count` remains the number Front returned, `returned` is the number left
+in `data`, and `truncated` is `true`.
+
+Field names are literal. For example, `--fields id,metadata.name` selects keys
+named `id` and `metadata.name`; it does not traverse a nested `metadata` object.
+Missing fields are omitted.
+
 ## Universal JSON GET
 
 Use the generic command when an official JSON GET endpoint has no shortcut:
@@ -169,8 +197,10 @@ front list tag --limit 25 --param q=alice --param sort_by=created_at \
 ```
 
 In an action parameter, pass `value` once and repeat the flag once for each item
-in `values`. This preserves the original limit, filters, arbitrary parameters,
-and replacement page token without reconstructing them from a URL. See
+in `values`. A parameter with neither is an active boolean switch and should be
+passed once without a following value. This preserves the original limit,
+filters, arbitrary parameters, local output controls, and replacement page
+token without reconstructing them from a URL. See
 [Output format](output-format.md) for the complete action schema.
 
 ## Shell completion

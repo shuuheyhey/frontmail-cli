@@ -1,6 +1,6 @@
 use frontmail_cli::{
     client::FrontClient,
-    commands::{ReadRequest, execute_read, whoami_json},
+    commands::{OutputOptions, ReadRequest, execute_read, whoami_json},
 };
 use secrecy::SecretString;
 use serde_json::Value;
@@ -49,6 +49,7 @@ async fn collection_envelope_preserves_data_and_builds_pagination_action() {
                 ("page_token".into(), "current".into()),
             ],
             pagination_command: Some("front list tags".into()),
+            output: Default::default(),
         },
     )
     .await
@@ -69,6 +70,9 @@ async fn collection_envelope_preserves_data_and_builds_pagination_action() {
         actual["next_actions"][0]["params"]["--param"]["values"],
         serde_json::json!(["q=alice smith", "sort_by=created_at"])
     );
+    assert!(actual["result"].get("returned").is_none());
+    assert!(actual["result"].get("projection").is_none());
+    assert!(actual["result"].get("truncated").is_none());
 }
 
 #[tokio::test]
@@ -89,6 +93,7 @@ async fn item_envelope_omits_collection_metadata() {
             segments: vec!["tags".into(), "tag_1".into()],
             query: vec![],
             pagination_command: None,
+            output: Default::default(),
         },
     )
     .await
@@ -98,6 +103,279 @@ async fn item_envelope_omits_collection_metadata() {
     assert_eq!(actual["result"]["data"]["id"], "tag_1");
     assert!(actual["result"].get("count").is_none());
     assert!(actual["result"].get("next_page_token").is_none());
+}
+
+async fn execute_body(body: Value, output: OutputOptions) -> Value {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/example"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(body))
+        .mount(&server)
+        .await;
+
+    let output = execute_read(
+        &client(&server),
+        ReadRequest {
+            command: "front api get /example".into(),
+            segments: vec!["example".into()],
+            query: vec![],
+            pagination_command: None,
+            output,
+        },
+    )
+    .await
+    .unwrap();
+
+    serde_json::from_str(&output).unwrap()
+}
+
+#[tokio::test]
+async fn count_only_omits_data_and_reports_the_original_collection_count() {
+    let actual = execute_body(
+        serde_json::json!({
+            "_results": [
+                {"id": "tag_1", "name": "Customer value one"},
+                {"id": "tag_2", "name": "Customer value two"}
+            ]
+        }),
+        OutputOptions {
+            count_only: true,
+            ..OutputOptions::default()
+        },
+    )
+    .await;
+
+    assert_eq!(
+        actual["result"],
+        serde_json::json!({
+            "count": 2,
+            "returned": 0,
+            "projection": {"mode": "count-only"}
+        })
+    );
+    let result = actual["result"].to_string();
+    assert!(!result.contains("Customer value"));
+    assert!(!result.contains("tag_1"));
+}
+
+#[tokio::test]
+async fn keys_only_returns_sorted_keys_without_customer_values() {
+    let actual = execute_body(
+        serde_json::json!({
+            "_results": [
+                {"name": "Customer value", "id": "tag_1"},
+                {"zeta": 1, "alpha": 2}
+            ],
+            "_pagination": {"next": "https://customer.invalid/secret"}
+        }),
+        OutputOptions {
+            keys_only: true,
+            ..OutputOptions::default()
+        },
+    )
+    .await;
+
+    assert_eq!(
+        actual["result"]["data"],
+        serde_json::json!({
+            "_results": [
+                ["id", "name"],
+                ["alpha", "zeta"]
+            ]
+        })
+    );
+    assert_eq!(actual["result"]["count"], 2);
+    assert_eq!(actual["result"]["returned"], 2);
+    assert_eq!(
+        actual["result"]["projection"],
+        serde_json::json!({"mode": "keys-only"})
+    );
+    let data = actual["result"]["data"].to_string();
+    assert!(!data.contains("Customer value"));
+    assert!(!data.contains("tag_1"));
+    assert!(!data.contains("customer.invalid"));
+}
+
+#[tokio::test]
+async fn fields_projects_literal_keys_on_collection_items_and_single_objects() {
+    let options = OutputOptions {
+        fields: vec!["id".into(), "literal.nested".into(), "missing".into()],
+        ..OutputOptions::default()
+    };
+    let collection = execute_body(
+        serde_json::json!({
+            "_results": [{
+                "id": "tag_1",
+                "literal.nested": "kept",
+                "nested": {"value": "not selected"},
+                "name": "not selected"
+            }]
+        }),
+        options.clone(),
+    )
+    .await;
+    let item = execute_body(
+        serde_json::json!({
+            "id": "tag_1",
+            "literal.nested": "kept",
+            "name": "not selected"
+        }),
+        options,
+    )
+    .await;
+
+    let expected = serde_json::json!({"id": "tag_1", "literal.nested": "kept"});
+    assert_eq!(collection["result"]["data"]["_results"][0], expected);
+    assert_eq!(item["result"]["data"], expected);
+    assert_eq!(collection["result"]["returned"], 1);
+    assert_eq!(item["result"]["returned"], 1);
+    assert_eq!(
+        item["result"]["projection"],
+        serde_json::json!({
+            "mode": "fields",
+            "fields": ["id", "literal.nested", "missing"]
+        })
+    );
+}
+
+#[tokio::test]
+async fn fields_treats_non_array_results_as_a_literal_single_object_key() {
+    let actual = execute_body(
+        serde_json::json!({"_results": "literal value", "id": "tag_1"}),
+        OutputOptions {
+            fields: vec!["_results".into()],
+            ..OutputOptions::default()
+        },
+    )
+    .await;
+
+    assert_eq!(
+        actual["result"]["data"],
+        serde_json::json!({"_results": "literal value"})
+    );
+}
+
+#[tokio::test]
+async fn keys_treats_non_array_results_as_a_literal_single_object_key() {
+    let actual = execute_body(
+        serde_json::json!({"_results": "literal value", "id": "tag_1"}),
+        OutputOptions {
+            keys_only: true,
+            ..OutputOptions::default()
+        },
+    )
+    .await;
+
+    assert_eq!(
+        actual["result"]["data"],
+        serde_json::json!(["_results", "id"])
+    );
+}
+
+#[tokio::test]
+async fn max_items_truncates_locally_but_keeps_the_original_count() {
+    let actual = execute_body(
+        serde_json::json!({
+            "_results": [{"id": 1}, {"id": 2}, {"id": 3}],
+            "other": "preserved"
+        }),
+        OutputOptions {
+            max_items: Some(2),
+            ..OutputOptions::default()
+        },
+    )
+    .await;
+
+    assert_eq!(actual["result"]["count"], 3);
+    assert_eq!(actual["result"]["returned"], 2);
+    assert_eq!(actual["result"]["truncated"], true);
+    assert_eq!(
+        actual["result"]["data"]["_results"],
+        serde_json::json!([{"id": 1}, {"id": 2}])
+    );
+    assert_eq!(actual["result"]["data"]["other"], "preserved");
+    assert!(actual["result"].get("projection").is_none());
+}
+
+#[tokio::test]
+async fn projections_handle_empty_collections_missing_fields_and_non_objects() {
+    let empty = execute_body(
+        serde_json::json!({"_results": []}),
+        OutputOptions {
+            max_items: Some(2),
+            ..OutputOptions::default()
+        },
+    )
+    .await;
+    let missing = execute_body(
+        serde_json::json!({"id": "tag_1"}),
+        OutputOptions {
+            fields: vec!["missing".into()],
+            ..OutputOptions::default()
+        },
+    )
+    .await;
+    let non_object = execute_body(
+        serde_json::json!("Customer value"),
+        OutputOptions {
+            keys_only: true,
+            ..OutputOptions::default()
+        },
+    )
+    .await;
+
+    assert_eq!(empty["result"]["count"], 0);
+    assert_eq!(empty["result"]["returned"], 0);
+    assert!(empty["result"].get("truncated").is_none());
+    assert_eq!(missing["result"]["data"], serde_json::json!({}));
+    assert_eq!(non_object["result"]["data"], serde_json::json!([]));
+    assert!(
+        !non_object["result"]["data"]
+            .to_string()
+            .contains("Customer value")
+    );
+}
+
+#[tokio::test]
+async fn pagination_actions_preserve_active_output_flags() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/tags"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "_results": [{"id": "tag_1", "name": "Urgent"}],
+            "_pagination": {
+                "next": "https://api2.frontapp.com/tags?page_token=next"
+            }
+        })))
+        .mount(&server)
+        .await;
+
+    let output = execute_read(
+        &client(&server),
+        ReadRequest {
+            command: "front list tag".into(),
+            segments: vec!["tags".into()],
+            query: vec![],
+            pagination_command: Some("front list tag".into()),
+            output: OutputOptions {
+                fields: vec!["id".into(), "name".into()],
+                max_items: Some(1),
+                ..OutputOptions::default()
+            },
+        },
+    )
+    .await
+    .unwrap();
+    let actual: Value = serde_json::from_str(&output).unwrap();
+
+    assert_eq!(
+        actual["next_actions"][0]["params"]["--fields"]["value"],
+        "id,name"
+    );
+    assert_eq!(
+        actual["next_actions"][0]["params"]["--max-items"]["value"],
+        "1"
+    );
 }
 
 #[tokio::test]

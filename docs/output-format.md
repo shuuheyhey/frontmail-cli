@@ -92,9 +92,11 @@ resource IDs, or customer data.
 
 ## Generic read results
 
-`front whoami`, `front list`, `front get`, `front related`, and
+By default, `front whoami`, `front list`, `front get`, `front related`, and
 `front api get` preserve the complete decoded API response under `result.data`.
-The CLI does not rename or discard API fields.
+The CLI does not rename or discard API fields. With no output control, the
+generic result shape is unchanged and does not include `returned`, `projection`,
+or `truncated`.
 
 When `data._results` is an array, `result.count` contains the number returned in
 the current response. Item and other non-collection JSON responses omit
@@ -102,8 +104,69 @@ the current response. Item and other non-collection JSON responses omit
 `next_page_token` and a corresponding next action.
 
 A parameter with `value` is passed once. A parameter with `values` is repeated
-once for each array item, preserving filters and arbitrary query parameters
-when an agent follows a pagination action.
+once for each array item. A parameter with neither represents a bare boolean
+switch. Pagination actions preserve filters, arbitrary query parameters, and
+active generic output controls.
+
+### Projected and bounded results
+
+The generic resource and API GET commands support the following result
+metadata only when a local output option is active:
+
+| Field | Meaning |
+|---|---|
+| `count` | Original decoded collection size before local truncation; omitted for non-collections |
+| `returned` | Number of collection items or the single projected item left in `data`; always `0` for count-only output |
+| `projection` | Projection mode and, for field projection, the requested literal field names |
+| `truncated` | `true` only when `--max-items` removed collection items |
+
+Count-only output omits `data`:
+
+```json
+{
+  "count": 42,
+  "returned": 0,
+  "projection": { "mode": "count-only" }
+}
+```
+
+Keys-only output replaces objects with sorted key arrays. For a collection,
+the `_results` wrapper remains but response values and the original pagination
+object are not copied into `data`:
+
+```json
+{
+  "data": {
+    "_results": [
+      ["id", "name"]
+    ]
+  },
+  "count": 1,
+  "returned": 1,
+  "projection": { "mode": "keys-only" },
+  "next_page_token": "next-token"
+}
+```
+
+Field projection uses a stable tagged form:
+
+```json
+{
+  "data": { "id": "tag_123", "name": "Urgent" },
+  "returned": 1,
+  "projection": {
+    "mode": "fields",
+    "fields": ["id", "name"]
+  }
+}
+```
+
+`--count-only` and `--keys-only` keep customer response values out of
+`result.data`; they are not complete redaction modes. Counts, key names,
+commands, resource identifiers, pagination tokens, errors, and action metadata
+can still be sensitive. `--fields` deliberately returns the selected values,
+and the default output returns the full decoded response. Review output before
+sharing it outside its intended trust boundary.
 
 ## Compact workflow results
 

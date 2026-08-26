@@ -12,6 +12,7 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 - Initial Rust implementation of the read-only Front API CLI.
 - JSON envelopes with actionable `next_actions` metadata.
 - Typed inbox and conversation workflows plus safe generic GET commands.
+- Bounded and projected output controls for generic resource and API reads.
 - Contract tests, contributor documentation, and read-only CI checks.
 - Effective configuration source reporting in `front config` without resolving
   or exposing token commands.
