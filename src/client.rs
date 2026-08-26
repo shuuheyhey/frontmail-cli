@@ -181,6 +181,10 @@ impl FrontClient {
             .get(reqwest::header::LOCATION)?
             .to_str()
             .ok()?;
+        self.approved_redirect_location(current_url, location)
+    }
+
+    fn approved_redirect_location(&self, current_url: &Url, location: &str) -> Option<Url> {
         let target = current_url.join(location).ok()?;
         if !redirect_location_path_is_safe(location)
             || target.fragment().is_some()
@@ -223,7 +227,8 @@ fn redirect_location_path_is_safe(location: &str) -> bool {
         location
     };
     path_and_query.split(['?', '#']).next().is_some_and(|path| {
-        !path.is_empty() && path.split('/').all(redirect_location_segment_is_safe)
+        (location.starts_with('?') && path.is_empty())
+            || (!path.is_empty() && path.split('/').all(redirect_location_segment_is_safe))
     })
 }
 
@@ -332,6 +337,42 @@ mod tests {
             assert!(
                 !client.redirect_origin_is_approved(&target),
                 "approved non-standard-port redirect target {location}"
+            );
+        }
+    }
+
+    #[test]
+    fn production_alias_location_is_rebuilt_on_the_configured_origin() {
+        let client =
+            FrontClient::production(SecretString::from("test-token"), "front/test").unwrap();
+        let current = Url::parse("https://api2.frontapp.com/old?old=1").unwrap();
+
+        let approved = client
+            .approved_redirect_location(
+                &current,
+                "https://company.api.frontapp.com/conversations/cnv%5F1?cursor=next",
+            )
+            .unwrap();
+
+        assert_eq!(approved.origin(), client.base_url.origin());
+        assert_eq!(approved.path(), "/conversations/cnv%5F1");
+        assert_eq!(approved.query(), Some("cursor=next"));
+        assert_ne!(
+            approved.origin(),
+            Url::parse("https://company.api.frontapp.com")
+                .unwrap()
+                .origin()
+        );
+
+        for location in [
+            "http://company.api.frontapp.com/conversations/cnv_1",
+            "https://company.api.frontapp.com:444/conversations/cnv_1",
+        ] {
+            assert!(
+                client
+                    .approved_redirect_location(&current, location)
+                    .is_none(),
+                "approved unsafe alias Location {location}"
             );
         }
     }

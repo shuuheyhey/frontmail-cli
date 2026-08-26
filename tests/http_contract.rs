@@ -2,7 +2,7 @@ use frontmail_cli::client::{ClientError, FrontClient};
 use secrecy::SecretString;
 use wiremock::{
     Mock, MockServer, ResponseTemplate,
-    matchers::{header, method, path, query_param},
+    matchers::{header, method, path, query_param, query_param_is_missing},
 };
 
 fn client(server: &MockServer) -> FrontClient {
@@ -203,6 +203,35 @@ async fn get_value_follows_a_safe_relative_301_location() {
         .unwrap();
 
     assert_eq!(value["id"], "relative-redirected");
+}
+
+#[tokio::test]
+async fn get_value_follows_a_query_only_301_location() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/old"))
+        .and(query_param("old", "1"))
+        .respond_with(ResponseTemplate::new(301).insert_header("Location", "?cursor=next"))
+        .expect(1)
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/old"))
+        .and(query_param("cursor", "next"))
+        .and(query_param_is_missing("old"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "id": "query-only-redirected"
+        })))
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    let value = client(&server)
+        .get_value(&["old".into()], &[("old".into(), "1".into())])
+        .await
+        .unwrap();
+
+    assert_eq!(value["id"], "query-only-redirected");
 }
 
 #[tokio::test]
