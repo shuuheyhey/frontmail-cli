@@ -89,12 +89,16 @@ async fn run_api_command(
     query_was_set: bool,
     limit_was_set: bool,
 ) {
+    let requested_command = request
+        .as_ref()
+        .map(|request| request.command.clone())
+        .unwrap_or_else(|| command_name(&command).to_owned());
     let config_path = config::path();
     let loaded = match config::load_from(&config_path) {
         Ok(config) => config,
         Err(error) => {
             print_failure(
-                "front",
+                &requested_command,
                 error.to_string(),
                 "CONFIG_ERROR",
                 "Check config file syntax",
@@ -107,7 +111,7 @@ async fn run_api_command(
         Ok(token) => token,
         Err(error) => {
             print_failure(
-                "front",
+                &requested_command,
                 error.to_string(),
                 "UNAUTHORIZED",
                 format!(
@@ -121,7 +125,11 @@ async fn run_api_command(
     let client = match FrontClient::production(token, format!("front-cli/{VERSION}")) {
         Ok(client) => client,
         Err(error) => {
-            print_command_error("front", CommandError::Client(error), &config_path);
+            print_command_error(
+                &requested_command,
+                CommandError::Client(error),
+                &config_path,
+            );
             return;
         }
     };

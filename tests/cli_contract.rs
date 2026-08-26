@@ -200,6 +200,35 @@ fn malformed_query_parameter_is_rejected_before_authentication() {
 }
 
 #[test]
+#[cfg(not(target_os = "windows"))]
+fn authentication_failures_report_the_requested_command() {
+    let whoami_dir = tempdir().unwrap();
+    let (mut whoami_command, _) = isolated_config_command(whoami_dir.path());
+    let whoami_output = whoami_command
+        .arg("whoami")
+        .env_remove("FRONT_API_TOKEN")
+        .output()
+        .unwrap();
+
+    let list_dir = tempdir().unwrap();
+    let (mut list_command, _) = isolated_config_command(list_dir.path());
+    let list_output = list_command
+        .args(["list", "tags"])
+        .env_remove("FRONT_API_TOKEN")
+        .output()
+        .unwrap();
+
+    assert_eq!(whoami_output.status.code(), Some(1));
+    assert_eq!(list_output.status.code(), Some(1));
+
+    let whoami_error: Value = serde_json::from_slice(&whoami_output.stdout).unwrap();
+    let list_error: Value = serde_json::from_slice(&list_output.stdout).unwrap();
+    assert_eq!(whoami_error["command"], "front whoami");
+    assert_eq!(list_error["command"], "front list tag");
+    assert_eq!(whoami_error["error"]["code"], "UNAUTHORIZED");
+}
+
+#[test]
 fn completion_generation_is_plain_text_and_does_not_require_authentication() {
     let dir = tempdir().unwrap();
     let output = cargo_bin_cmd!("front")
