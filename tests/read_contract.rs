@@ -38,7 +38,10 @@ async fn read_fetches_conversation_and_messages_and_truncates_utf8_safely() {
                 "body": "<p>ignored</p>",
                 "created_at": 1700000000,
                 "is_inbound": true,
-                "author": {"first_name": "Bob", "last_name": "Smith", "email": "bob@example.com"}
+                "author": {"first_name": "Bob", "last_name": "Smith", "email": "bob@example.com"},
+                "recipients": [
+                    {"name": "Visitor", "handle": "visitor-should-not-win", "role": "from"}
+                ]
             }, {
                 "id": "msg_2",
                 "text": "",
@@ -67,6 +70,10 @@ async fn read_fetches_conversation_and_messages_and_truncates_utf8_safely() {
     assert!(text.is_char_boundary(text.len()));
     assert!(text.ends_with("... [truncated]"));
     assert!(text.len() <= 500 + "... [truncated]".len());
+    assert_eq!(
+        actual["result"]["messages"][0]["from"],
+        serde_json::json!({"name": "Bob Smith", "email": "bob@example.com"})
+    );
     assert_eq!(actual["result"]["messages"][1]["text"], "Body fallback");
     assert_eq!(
         actual["result"]["messages"][2]["from"],
