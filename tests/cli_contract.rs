@@ -153,6 +153,27 @@ fn malformed_config_labels_normalized_api_command() {
 }
 
 #[test]
+#[cfg(not(target_os = "windows"))]
+fn unsupported_collection_pagination_is_rejected_before_malformed_config_is_loaded() {
+    let dir = tempdir().unwrap();
+    let (mut command, config_path) = isolated_config_command(dir.path());
+    fs::create_dir_all(config_path.parent().unwrap()).unwrap();
+    fs::write(config_path, "token_command: [unterminated\n").unwrap();
+
+    let output = command
+        .args(["list", "inboxes", "--limit", "2"])
+        .env_remove("FRONT_API_TOKEN")
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.code(), Some(1));
+    assert!(output.stderr.is_empty());
+    let actual: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(actual["command"], "front list inbox");
+    assert_eq!(actual["error"]["code"], "INVALID_INPUT");
+}
+
+#[test]
 fn unknown_command_is_a_json_cli_error() {
     let output = cargo_bin_cmd!("front").arg("bogus").output().unwrap();
     assert_eq!(output.status.code(), Some(1));
