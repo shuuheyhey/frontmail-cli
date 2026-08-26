@@ -235,6 +235,36 @@ async fn get_value_follows_a_query_only_301_location() {
 }
 
 #[tokio::test]
+async fn get_value_follows_a_query_only_301_location_with_a_url_value() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/old"))
+        .and(query_param_is_missing("next"))
+        .respond_with(
+            ResponseTemplate::new(301).insert_header("Location", "?next=https://example.test"),
+        )
+        .expect(1)
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/old"))
+        .and(query_param("next", "https://example.test"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "id": "url-query-redirected"
+        })))
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    let value = client(&server)
+        .get_value(&["old".into()], &[])
+        .await
+        .unwrap();
+
+    assert_eq!(value["id"], "url-query-redirected");
+}
+
+#[tokio::test]
 async fn get_value_does_not_follow_a_301_to_a_download_path() {
     let server = MockServer::start().await;
     Mock::given(method("GET"))

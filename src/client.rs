@@ -217,19 +217,68 @@ impl FrontClient {
 }
 
 fn redirect_location_path_is_safe(location: &str) -> bool {
-    let path_and_query = if let Some(scheme) = location.find("://") {
-        let authority_and_path = &location[scheme + 3..];
-        let Some(path_start) = authority_and_path.find(['/', '?', '#']) else {
-            return false;
-        };
-        &authority_and_path[path_start..]
+    if location.chars().any(char::is_control)
+        || location.contains('\\')
+        || !has_valid_percent_escapes(location)
+    {
+        return false;
+    }
+    if location.starts_with('?') {
+        return true;
+    }
+    let path_and_query = raw_location_path(location);
+    path_and_query.split(['?', '#']).next().is_some_and(|path| {
+        !path.is_empty() && path.split('/').all(redirect_location_segment_is_safe)
+    })
+}
+
+fn raw_location_path(location: &str) -> &str {
+    let reference = if let Some(scheme_end) = uri_scheme_end(location) {
+        &location[scheme_end + 1..]
     } else {
         location
     };
-    path_and_query.split(['?', '#']).next().is_some_and(|path| {
-        (location.starts_with('?') && path.is_empty())
-            || (!path.is_empty() && path.split('/').all(redirect_location_segment_is_safe))
+    if let Some(authority) = reference.strip_prefix("//") {
+        authority
+            .find(['/', '?', '#'])
+            .map_or("", |path_start| &authority[path_start..])
+    } else {
+        reference
+    }
+}
+
+fn uri_scheme_end(location: &str) -> Option<usize> {
+    let bytes = location.as_bytes();
+    if !bytes.first().is_some_and(u8::is_ascii_alphabetic) {
+        return None;
+    }
+    bytes.iter().position(|byte| *byte == b':').filter(|end| {
+        bytes[..*end]
+            .iter()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(*byte, b'+' | b'-' | b'.'))
     })
+}
+
+fn has_valid_percent_escapes(value: &str) -> bool {
+    let bytes = value.as_bytes();
+    let mut index = 0;
+    while index < bytes.len() {
+        if bytes[index] == b'%' {
+            if !bytes
+                .get(index + 1)
+                .is_some_and(|byte| hex_value(*byte).is_some())
+                || !bytes
+                    .get(index + 2)
+                    .is_some_and(|byte| hex_value(*byte).is_some())
+            {
+                return false;
+            }
+            index += 3;
+        } else {
+            index += 1;
+        }
+    }
+    true
 }
 
 fn redirect_location_segment_is_safe(segment: &str) -> bool {
@@ -375,5 +424,37 @@ mod tests {
                 "approved unsafe alias Location {location}"
             );
         }
+    }
+
+    #[test]
+    fn redirect_location_rejects_raw_backslashes_controls_and_bad_escapes() {
+        let client =
+            FrontClient::production(SecretString::from("test-token"), "front/test").unwrap();
+        let current = Url::parse("https://api2.frontapp.com/old").unwrap();
+
+        for location in [
+            "https://api2.frontapp.com\\safe\\..\\new/x",
+            "?\tcursor=next",
+            "?cursor=%ZZ",
+        ] {
+            assert!(
+                client
+                    .approved_redirect_location(&current, location)
+                    .is_none(),
+                "approved unsafe Location {location:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn query_only_location_with_a_url_value_is_approved() {
+        let client =
+            FrontClient::production(SecretString::from("test-token"), "front/test").unwrap();
+        let current = Url::parse("https://api2.frontapp.com/old").unwrap();
+        assert!(
+            client
+                .approved_redirect_location(&current, "?next=https://example.test")
+                .is_some()
+        );
     }
 }
