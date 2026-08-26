@@ -180,6 +180,32 @@ async fn get_value_follows_a_safe_301_on_the_configured_origin() {
 }
 
 #[tokio::test]
+async fn get_value_follows_a_safe_relative_301_location() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/old"))
+        .respond_with(ResponseTemplate::new(301).insert_header("Location", "new"))
+        .expect(1)
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/new"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "id": "relative-redirected"
+        })))
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    let value = client(&server)
+        .get_value(&["old".into()], &[])
+        .await
+        .unwrap();
+
+    assert_eq!(value["id"], "relative-redirected");
+}
+
+#[tokio::test]
 async fn get_value_does_not_follow_a_301_to_a_download_path() {
     let server = MockServer::start().await;
     Mock::given(method("GET"))

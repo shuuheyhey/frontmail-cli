@@ -181,11 +181,14 @@ impl FrontClient {
             .get(reqwest::header::LOCATION)?
             .to_str()
             .ok()?;
-        let segments = validate_api_path(redirect_location_path(location)?).ok()?;
         let target = current_url.join(location).ok()?;
-        if target.fragment().is_some() || !self.redirect_origin_is_approved(&target) {
+        if redirect_location_has_traversal(location)
+            || target.fragment().is_some()
+            || !self.redirect_origin_is_approved(&target)
+        {
             return None;
         }
+        let segments = validate_api_path(target.path()).ok()?;
         let segment_refs: Vec<_> = segments.iter().map(String::as_str).collect();
         let mut approved = self.url(&segment_refs).ok()?;
         approved.set_query(target.query());
@@ -196,6 +199,7 @@ impl FrontClient {
         target.origin() == self.base_url.origin()
             || (self.uses_production_base()
                 && target.scheme() == "https"
+                && target.port_or_known_default() == Some(443)
                 && target.host_str().is_some_and(|host| {
                     host == "api2.frontapp.com" || host.ends_with(".api.frontapp.com")
                 }))
@@ -208,15 +212,20 @@ impl FrontClient {
     }
 }
 
-fn redirect_location_path(location: &str) -> Option<&str> {
+fn redirect_location_has_traversal(location: &str) -> bool {
     let path_and_query = if let Some(scheme) = location.find("://") {
         let authority_and_path = &location[scheme + 3..];
-        let path_start = authority_and_path.find(['/', '?', '#'])?;
+        let Some(path_start) = authority_and_path.find(['/', '?', '#']) else {
+            return false;
+        };
         &authority_and_path[path_start..]
     } else {
         location
     };
-    path_and_query.split(['?', '#']).next()
+    path_and_query
+        .split(['?', '#'])
+        .next()
+        .is_some_and(|path| path.split('/').any(|segment| matches!(segment, "." | "..")))
 }
 
 fn api_error_message(body: &[u8]) -> Option<String> {
@@ -250,5 +259,30 @@ pub fn classify_http(status: StatusCode) -> (&'static str, String) {
         404 => ("NOT_FOUND", "Check the resource ID and try again".into()),
         429 => ("RATE_LIMITED", "Wait and retry".into()),
         code => ("API_ERROR", format!("API returned status {code}")),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use secrecy::SecretString;
+    use url::Url;
+
+    use super::FrontClient;
+
+    #[test]
+    fn production_redirect_alias_requires_the_default_https_port() {
+        let client =
+            FrontClient::production(SecretString::from("test-token"), "front/test").unwrap();
+
+        for location in [
+            "https://api2.frontapp.com:444/new",
+            "https://company.api.frontapp.com:444/new",
+        ] {
+            let target = Url::parse(location).unwrap();
+            assert!(
+                !client.redirect_origin_is_approved(&target),
+                "approved non-standard-port redirect target {location}"
+            );
+        }
     }
 }
