@@ -21,4 +21,11 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 - Refreshed the API support review against the latest official Front Core API
   specification revision.
 
+### Fixed
+
+- Follow up to three validated HTTP 301 redirects while preserving the
+  configured Front API origin.
+- Use a message's `from` recipient as the sender when its author is absent.
+- Report the requested command for authentication and configuration errors.
+
 [Unreleased]: https://github.com/shuuheyhey/frontmail-cli/commits/develop

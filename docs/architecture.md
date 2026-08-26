@@ -43,9 +43,19 @@ inject a local mock-server URL through a library constructor.
 
 `FrontClient::get_value` accepts already validated path segments and structured
 query pairs. URL construction percent-encodes each segment and query value. The
-client exposes GET only, has no generic method or request-body parameter, and
-does not follow HTTP redirects. Disabling redirects prevents a validated
-fixed-origin request from being redirected to a download or another origin.
+client exposes GET only and has no generic method or request-body parameter.
+Reqwest automatic redirects remain disabled. The client manually replays only
+HTTP 301 responses, for at most three hops, after validating the `Location`
+origin and path. Every approved redirect is rebuilt as a path and query on the
+configured base origin before it is requested, so a redirect target is never
+accessed directly.
+
+A redirect target may use the configured origin. When the configured base is
+the production API, `https://api2.frontapp.com` and HTTPS subdomains of
+`api.frontapp.com` with effective port 443 are also accepted as aliases, but
+are still rebuilt on the configured production origin. HTTP 302 and other
+statuses, missing or malformed locations, and targets with unsafe paths or
+unapproved origins are returned as redirect responses rather than followed.
 
 The validator rejects absolute URLs, embedded queries, fragments, empty or
 traversal segments, controls, and `download` segments. Resource and relation
