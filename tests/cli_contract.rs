@@ -133,6 +133,26 @@ fn malformed_config_does_not_expose_a_sensitive_value() {
 }
 
 #[test]
+#[cfg(not(target_os = "windows"))]
+fn malformed_config_labels_normalized_api_command() {
+    let dir = tempdir().unwrap();
+    let (mut command, config_path) = isolated_config_command(dir.path());
+    fs::create_dir_all(config_path.parent().unwrap()).unwrap();
+    fs::write(config_path, "token_command: [unterminated\n").unwrap();
+
+    let output = command
+        .args(["list", "tags"])
+        .env_remove("FRONT_API_TOKEN")
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.code(), Some(1));
+    let actual: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(actual["command"], "front list tag");
+    assert_eq!(actual["error"]["code"], "CONFIG_ERROR");
+}
+
+#[test]
 fn unknown_command_is_a_json_cli_error() {
     let output = cargo_bin_cmd!("front").arg("bogus").output().unwrap();
     assert_eq!(output.status.code(), Some(1));
