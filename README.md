@@ -40,6 +40,13 @@ front whoami
 front inboxes
 ```
 
+For multiple Front accounts or environments, define named profiles in the
+config file and select one globally with `front --profile <name> <command>` or
+`front <command> --profile <name>`. Explicit profiles are isolated from
+`FRONT_API_TOKEN`, `FRONT_USER`, and legacy top-level credentials. See
+[Configuration and secret handling](docs/configuration.md) for the schema and
+selection order.
+
 Run `front` with no arguments to get the machine-readable command catalog and
 its `next_actions`.
 

@@ -9,10 +9,28 @@ completion. All other commands return JSON envelopes documented in
 Run `front` with no arguments to return the current command catalog and
 structured parameter descriptions.
 
+## Global profile option
+
+`--profile <name>` selects a named config profile for `front config` and every
+authenticated command. Clap accepts the global option before or after a
+subcommand, including nested `api get` commands:
+
+```bash
+front --profile work list tags
+front list tags --profile work
+front api get /me --profile work
+```
+
+Explicit selection ignores ambient `FRONT_API_TOKEN`, `FRONT_USER`, and legacy
+top-level credentials. Without the option, legacy sources take priority,
+followed by `default_profile`, then automatic selection when exactly one
+profile exists. See [Configuration](configuration.md) for the complete truth
+table and redaction behavior.
+
 | Command | Description |
 |---|---|
 | `front` | Return available commands and parameters |
-| `front config` | Show config path, user, and redacted token-command state |
+| `front config` | Show selected config metadata and redacted token-command state |
 | `front doctor` | Run redacted authentication and read-scope diagnostics |
 | `front inboxes` | List all accessible inboxes or those for `FRONT_USER` |
 | `front inbox [inbox-id]` | Search conversations, optionally in one inbox |

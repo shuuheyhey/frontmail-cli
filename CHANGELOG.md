@@ -17,6 +17,8 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
   or exposing token commands.
 - Redacted `front doctor` authentication, configured-user, and optional
   read-scope diagnostics using GET requests only.
+- Named configuration profiles with explicit, default, and one-profile
+  automatic selection plus ambient credential isolation.
 
 ### Changed
 

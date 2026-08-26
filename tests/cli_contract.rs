@@ -171,6 +171,326 @@ fn config_omits_token_command_when_it_is_not_configured() {
 
 #[test]
 #[cfg(not(target_os = "windows"))]
+fn explicit_profile_config_is_selected_and_redacted() {
+    const COMMAND_ARG: &str = "profile command argument with spaces";
+    const PROFILE_USER: &str = "profile-user@example.invalid";
+    const AMBIENT_TOKEN: &str = "ambient-profile-token";
+    const AMBIENT_USER: &str = "ambient-user@example.invalid";
+    let dir = tempdir().unwrap();
+    let (mut command, config_path) = isolated_config_command(dir.path());
+    fs::create_dir_all(config_path.parent().unwrap()).unwrap();
+    fs::write(
+        config_path,
+        format!(
+            "profiles:\n  redacted:\n    token_command: [definitely-not-executed, \"{COMMAND_ARG}\"]\n    user: {PROFILE_USER}\n"
+        ),
+    )
+    .unwrap();
+
+    let output = command
+        .args(["config", "--profile", "redacted"])
+        .env("FRONT_API_TOKEN", AMBIENT_TOKEN)
+        .env("FRONT_USER", AMBIENT_USER)
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+    let actual: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(actual["command"], "front config");
+    assert_eq!(actual["result"]["profile"], "redacted");
+    assert_eq!(actual["result"]["profile_source"], "explicit");
+    assert_eq!(actual["result"]["token_command"], "(configured)");
+    assert_eq!(actual["result"]["token_source"], "token_command");
+    assert_eq!(actual["result"]["user_source"], "config");
+    assert!(actual["result"].get("user").is_none());
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    for value in [COMMAND_ARG, PROFILE_USER, AMBIENT_TOKEN, AMBIENT_USER] {
+        assert!(!stdout.contains(value));
+        assert!(!stderr.contains(value));
+    }
+}
+
+#[test]
+#[cfg(not(target_os = "windows"))]
+fn global_profile_flag_is_accepted_before_the_subcommand() {
+    let dir = tempdir().unwrap();
+    let (mut command, config_path) = isolated_config_command(dir.path());
+    fs::create_dir_all(config_path.parent().unwrap()).unwrap();
+    fs::write(config_path, "profiles:\n  only: {}\n").unwrap();
+
+    let output = command
+        .args(["--profile", "only", "config"])
+        .env_remove("FRONT_API_TOKEN")
+        .env_remove("FRONT_USER")
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+    let actual: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(actual["result"]["profile"], "only");
+    assert_eq!(actual["result"]["profile_source"], "explicit");
+}
+
+#[test]
+#[cfg(not(target_os = "windows"))]
+fn configured_default_profile_is_selected() {
+    let dir = tempdir().unwrap();
+    let (mut command, config_path) = isolated_config_command(dir.path());
+    fs::create_dir_all(config_path.parent().unwrap()).unwrap();
+    fs::write(
+        config_path,
+        "default_profile: second\nprofiles:\n  first: {}\n  second: {}\n",
+    )
+    .unwrap();
+
+    let output = command
+        .arg("config")
+        .env_remove("FRONT_API_TOKEN")
+        .env_remove("FRONT_USER")
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+    let actual: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(actual["result"]["profile"], "second");
+    assert_eq!(actual["result"]["profile_source"], "default");
+}
+
+#[test]
+#[cfg(not(target_os = "windows"))]
+fn a_single_profile_is_selected_automatically() {
+    let dir = tempdir().unwrap();
+    let (mut command, config_path) = isolated_config_command(dir.path());
+    fs::create_dir_all(config_path.parent().unwrap()).unwrap();
+    fs::write(config_path, "profiles:\n  only: {}\n").unwrap();
+
+    let output = command
+        .arg("config")
+        .env_remove("FRONT_API_TOKEN")
+        .env_remove("FRONT_USER")
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+    let actual: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(actual["result"]["profile"], "only");
+    assert_eq!(actual["result"]["profile_source"], "single");
+}
+
+#[test]
+#[cfg(not(target_os = "windows"))]
+fn multiple_profiles_without_a_default_require_explicit_selection() {
+    let dir = tempdir().unwrap();
+    let (mut command, config_path) = isolated_config_command(dir.path());
+    fs::create_dir_all(config_path.parent().unwrap()).unwrap();
+    fs::write(config_path, "profiles:\n  first: {}\n  second: {}\n").unwrap();
+
+    let output = command
+        .arg("config")
+        .env_remove("FRONT_API_TOKEN")
+        .env_remove("FRONT_USER")
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.code(), Some(1));
+    let actual: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(actual["command"], "front config");
+    assert_eq!(actual["error"]["code"], "CONFIG_ERROR");
+    let message = actual["error"]["message"].as_str().unwrap();
+    assert!(message.contains("first"));
+    assert!(message.contains("second"));
+}
+
+#[test]
+#[cfg(not(target_os = "windows"))]
+fn an_unknown_default_profile_is_a_safe_config_error() {
+    const PROFILE_VALUE: &str = "profile-value-that-must-stay-redacted";
+    let dir = tempdir().unwrap();
+    let (mut command, config_path) = isolated_config_command(dir.path());
+    fs::create_dir_all(config_path.parent().unwrap()).unwrap();
+    fs::write(
+        config_path,
+        format!(
+            "default_profile: missing\nprofiles:\n  work-profile:\n    user: {PROFILE_VALUE}\n"
+        ),
+    )
+    .unwrap();
+
+    let output = command
+        .arg("config")
+        .env_remove("FRONT_API_TOKEN")
+        .env_remove("FRONT_USER")
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.code(), Some(1));
+    let actual: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(actual["command"], "front config");
+    assert_eq!(actual["error"]["code"], "CONFIG_ERROR");
+    let message = actual["error"]["message"].as_str().unwrap();
+    assert!(message.contains("missing"));
+    assert!(message.contains("work-profile"));
+    assert!(!String::from_utf8_lossy(&output.stdout).contains(PROFILE_VALUE));
+    assert!(!String::from_utf8_lossy(&output.stderr).contains(PROFILE_VALUE));
+}
+
+#[test]
+#[cfg(not(target_os = "windows"))]
+fn unknown_profile_error_lists_only_available_profile_names() {
+    const PROFILE_COMMAND_ARG: &str = "private profile command argument";
+    const PROFILE_USER: &str = "private-profile-user@example.invalid";
+    const AMBIENT_TOKEN: &str = "ambient-token-that-must-stay-redacted";
+    const AMBIENT_USER: &str = "ambient-user-that-must-stay-redacted@example.invalid";
+    let dir = tempdir().unwrap();
+    let (mut command, config_path) = isolated_config_command(dir.path());
+    fs::create_dir_all(config_path.parent().unwrap()).unwrap();
+    fs::write(
+        config_path,
+        format!(
+            "profiles:\n  work-profile:\n    token_command: [never-run, \"{PROFILE_COMMAND_ARG}\"]\n    user: {PROFILE_USER}\n"
+        ),
+    )
+    .unwrap();
+
+    let output = command
+        .args(["list", "tags", "--profile", "missing"])
+        .env("FRONT_API_TOKEN", AMBIENT_TOKEN)
+        .env("FRONT_USER", AMBIENT_USER)
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.code(), Some(1));
+    let actual: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(actual["command"], "front list tag");
+    assert_eq!(actual["error"]["code"], "CONFIG_ERROR");
+    let message = actual["error"]["message"].as_str().unwrap();
+    assert!(message.contains("missing"));
+    assert!(message.contains("work-profile"));
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    for value in [
+        PROFILE_COMMAND_ARG,
+        PROFILE_USER,
+        AMBIENT_TOKEN,
+        AMBIENT_USER,
+    ] {
+        assert!(!stdout.contains(value));
+        assert!(!stderr.contains(value));
+    }
+}
+
+#[test]
+#[cfg(not(target_os = "windows"))]
+fn every_authenticated_command_uses_the_selected_profile_without_ambient_fallback() {
+    const PROFILE_COMMAND_ARG: &str = "private argument with spaces";
+    const PROFILE_USER: &str = "profile-user@example.invalid";
+    const AMBIENT_TOKEN: &str = "ambient-token-must-be-ignored";
+    const AMBIENT_USER: &str = "ambient-user-must-be-ignored@example.invalid";
+    let dir = tempdir().unwrap();
+    let (_, config_path) = isolated_config_command(dir.path());
+    fs::create_dir_all(config_path.parent().unwrap()).unwrap();
+    fs::write(
+        config_path,
+        format!(
+            "profiles:\n  isolated:\n    token_command: [front-profile-command-does-not-exist, \"{PROFILE_COMMAND_ARG}\"]\n    user: {PROFILE_USER}\n"
+        ),
+    )
+    .unwrap();
+
+    let cases: &[(&[&str], &str)] = &[
+        (&["inboxes", "--profile", "isolated"], "front inboxes"),
+        (&["inbox", "--profile", "isolated"], "front inbox"),
+        (&["read", "cnv_test", "--profile", "isolated"], "front read"),
+        (&["whoami", "--profile", "isolated"], "front whoami"),
+        (
+            &["api", "get", "/me", "--profile", "isolated"],
+            "front api get /me",
+        ),
+        (&["list", "tags", "--profile", "isolated"], "front list tag"),
+        (
+            &["get", "tag", "tag_test", "--profile", "isolated"],
+            "front get tag tag_test",
+        ),
+        (
+            &[
+                "related",
+                "tag",
+                "tag_test",
+                "children",
+                "--profile",
+                "isolated",
+            ],
+            "front related tag tag_test children",
+        ),
+    ];
+
+    for (args, expected_command) in cases {
+        let (mut command, _) = isolated_config_command(dir.path());
+        let output = command
+            .args(*args)
+            .env("FRONT_API_TOKEN", AMBIENT_TOKEN)
+            .env("FRONT_USER", AMBIENT_USER)
+            .output()
+            .unwrap();
+
+        assert_eq!(output.status.code(), Some(1), "args: {args:?}");
+        let actual: Value = serde_json::from_slice(&output.stdout).unwrap();
+        assert_eq!(actual["command"], *expected_command, "args: {args:?}");
+        assert_eq!(actual["error"]["code"], "UNAUTHORIZED", "args: {args:?}");
+        assert!(
+            actual["error"]["message"]
+                .as_str()
+                .unwrap()
+                .contains("token_command failed"),
+            "args: {args:?}"
+        );
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        for value in [
+            PROFILE_COMMAND_ARG,
+            PROFILE_USER,
+            AMBIENT_TOKEN,
+            AMBIENT_USER,
+        ] {
+            assert!(!stdout.contains(value), "args: {args:?}");
+            assert!(!stderr.contains(value), "args: {args:?}");
+        }
+    }
+}
+
+#[test]
+#[cfg(not(target_os = "windows"))]
+fn no_profile_keeps_legacy_environment_precedence_even_when_profiles_exist() {
+    const ENV_TOKEN: &str = "legacy-environment-token";
+    let dir = tempdir().unwrap();
+    let (mut command, config_path) = isolated_config_command(dir.path());
+    fs::create_dir_all(config_path.parent().unwrap()).unwrap();
+    fs::write(
+        config_path,
+        "token_command: [legacy-command]\nuser: legacy-user@example.invalid\nprofiles:\n  ignored:\n    token_command: [profile-command]\n    user: profile-user@example.invalid\n",
+    )
+    .unwrap();
+
+    let output = command
+        .arg("config")
+        .env("FRONT_API_TOKEN", ENV_TOKEN)
+        .env("FRONT_USER", "environment-user@example.invalid")
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+    let actual: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(actual["result"]["token_source"], "environment");
+    assert_eq!(actual["result"]["user_source"], "environment");
+    assert_eq!(actual["result"]["user"], "environment-user@example.invalid");
+    assert!(actual["result"].get("profile").is_none());
+    assert!(!String::from_utf8_lossy(&output.stdout).contains(ENV_TOKEN));
+}
+
+#[test]
+#[cfg(not(target_os = "windows"))]
 fn malformed_config_does_not_expose_a_sensitive_value() {
     const SENSITIVE: &str = "synthetic-sensitive-value";
     let dir = tempdir().unwrap();

@@ -19,8 +19,13 @@ use std::ffi::OsStr;
 struct ConfigResult {
     path: String,
     #[serde(skip_serializing_if = "Option::is_none")]
+    profile: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    profile_source: Option<config::ProfileSource>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     token_command: Option<&'static str>,
-    user: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    user: Option<String>,
     token_source: config::ConfigSource,
     user_source: config::ConfigSource,
 }
@@ -58,9 +63,11 @@ async fn main() {
         return;
     }
 
+    let profile = cli.profile;
+
     match cli.command {
         None => print_json(frontmail_cli::root_json()),
-        Some(Commands::Config) => run_config(),
+        Some(Commands::Config) => run_config(profile.as_deref()),
         Some(Commands::Completion(args)) => {
             generate(
                 args.shell,
@@ -88,7 +95,14 @@ async fn main() {
                     std::process::exit(1);
                 }
             };
-            run_api_command(command, request, query_was_set, limit_was_set).await;
+            run_api_command(
+                command,
+                request,
+                profile.as_deref(),
+                query_was_set,
+                limit_was_set,
+            )
+            .await;
         }
     }
 }
@@ -96,6 +110,7 @@ async fn main() {
 async fn run_api_command(
     command: Commands,
     request: Option<ReadRequest>,
+    profile: Option<&str>,
     query_was_set: bool,
     limit_was_set: bool,
 ) {
@@ -117,18 +132,36 @@ async fn run_api_command(
         }
     };
     let env = config::current_env();
-    let token = match config::resolve_token(&loaded, &env) {
-        Ok(token) => token,
+    let selected = match config::select_effective_config(&loaded, &env, profile) {
+        Ok(selected) => selected,
         Err(error) => {
             print_failure(
                 &requested_command,
                 error.to_string(),
-                "UNAUTHORIZED",
-                format!(
-                    "Set FRONT_API_TOKEN or configure token_command in {}",
-                    config_path.display()
-                ),
+                "CONFIG_ERROR",
+                "Choose a configured profile or update default_profile",
             );
+            std::process::exit(1);
+        }
+    };
+    let token = match selected.resolve_token() {
+        Ok(token) => token,
+        Err(error) => {
+            let fix = selected.profile_name().map_or_else(
+                || {
+                    format!(
+                        "Set FRONT_API_TOKEN or configure token_command in {}",
+                        config_path.display()
+                    )
+                },
+                |name| {
+                    format!(
+                        "Configure token_command for profile {name:?} in {}",
+                        config_path.display()
+                    )
+                },
+            );
+            print_failure(&requested_command, error.to_string(), "UNAUTHORIZED", fix);
             std::process::exit(1);
         }
     };
@@ -149,23 +182,20 @@ async fn run_api_command(
         (command_name, execute_read(&client, request).await)
     } else {
         match command {
-            Commands::Doctor => {
-                let user = config::resolve_user(&loaded, &env);
-                (
-                    "front doctor".into(),
-                    doctor_json(
-                        &client,
-                        config::token_source(&loaded, &env),
-                        config::user_source(&loaded, &env),
-                        &user,
-                    )
-                    .await,
+            Commands::Doctor => (
+                "front doctor".into(),
+                doctor_json(
+                    &client,
+                    selected.token_source(),
+                    selected.user_source(),
+                    selected.user(),
                 )
-            }
-            Commands::Inboxes => {
-                let user = config::resolve_user(&loaded, &env);
-                ("front inboxes".into(), inboxes_json(&client, &user).await)
-            }
+                .await,
+            ),
+            Commands::Inboxes => (
+                "front inboxes".into(),
+                inboxes_json(&client, selected.user()).await,
+            ),
             Commands::Inbox(args) => {
                 let options = InboxOptions {
                     inbox_id: args.inbox_id,
@@ -270,20 +300,39 @@ fn flag_was_set(args: &[std::ffi::OsString], flag: &str) -> bool {
     })
 }
 
-fn run_config() {
+fn run_config(profile: Option<&str>) {
     let path = config::path();
     match config::load_from(&path) {
-        Ok(config) => {
+        Ok(loaded) => {
             let env = config::current_env();
-            let token_command = (!config.token_command.is_empty()).then_some("(configured)");
+            let selected = match config::select_effective_config(&loaded, &env, profile) {
+                Ok(selected) => selected,
+                Err(error) => {
+                    print_failure(
+                        "front config",
+                        error.to_string(),
+                        "CONFIG_ERROR",
+                        "Choose a configured profile or update default_profile",
+                    );
+                    std::process::exit(1);
+                }
+            };
+            let token_command = selected
+                .token_command_configured()
+                .then_some("(configured)");
+            let profile = selected.profile_name().map(str::to_owned);
+            let profile_source = selected.profile_source();
+            let user = profile.is_none().then(|| selected.user().to_owned());
             print_json(envelope::success(
                 "front config",
                 ConfigResult {
                     path: path.display().to_string(),
+                    profile,
+                    profile_source,
                     token_command,
-                    user: config::resolve_user(&config, &env),
-                    token_source: config::token_source(&config, &env),
-                    user_source: config::user_source(&config, &env),
+                    user,
+                    token_source: selected.token_source(),
+                    user_source: selected.user_source(),
                 },
                 vec![],
             ));

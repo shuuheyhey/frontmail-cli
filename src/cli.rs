@@ -11,6 +11,9 @@ use crate::{
 pub struct Cli {
     #[arg(long, global = true)]
     pub version: bool,
+    /// Select a named config profile
+    #[arg(long, global = true, value_name = "NAME")]
+    pub profile: Option<String>,
     #[command(subcommand)]
     pub command: Option<Commands>,
 }
