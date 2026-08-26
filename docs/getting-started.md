@@ -56,9 +56,11 @@ front config
 front whoami
 ```
 
-`front config` reports the config path and whether a token command is
-configured. It never resolves or prints the token. `front whoami` performs the
-first authenticated GET and returns the Front user represented by the token.
+`front config` reports the config path and configured user. When a token
+command exists, `result.token_command` is the literal string `(configured)`;
+when it is unset, that field is omitted. The command never resolves or prints
+the token or token-command arguments. `front whoami` performs the first
+authenticated GET and returns the Front user represented by the token.
 
 ## Run the first workflow
 

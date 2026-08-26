@@ -1,6 +1,6 @@
 # Front API support
 
-Last reviewed: 2026-08-25
+Last reviewed: 2026-08-26
 
 [Documentation index](README.md) · [Command reference](commands.md) ·
 [Architecture](architecture.md)
@@ -112,7 +112,11 @@ front api get /accounts/custom_fields --param limit=50
 - The entire API response is retained under `result.data`.
 - When `_results` is an array, `result.count` reports the number returned.
 - When `_pagination.next` contains a page token, the token is exposed in the
-  result and in a structured `next_actions` parameter.
+  result and in a structured `next_actions` entry.
+- The next action emits the effective limit as `--limit.value`, preserves all
+  non-pagination query pairs under repeatable `--param.values` (including a
+  single item), and replaces any previous page token with the new
+  `--page-token.value`.
 
 ## Deliberate gaps
 

@@ -12,7 +12,7 @@ structured parameter descriptions.
 | Command | Description |
 |---|---|
 | `front` | Return available commands and parameters |
-| `front config` | Show config path, user, and token-command state |
+| `front config` | Show config path, user, and redacted token-command state |
 | `front inboxes` | List all accessible inboxes or those for `FRONT_USER` |
 | `front inbox [inbox-id]` | Search conversations, optionally in one inbox |
 | `front read <conversation-id>` | Read a compact conversation and its messages |
@@ -97,14 +97,19 @@ always GET and callers cannot provide a request body.
 ## Pagination
 
 When Front returns `_pagination.next` with a `page_token`, generic collection
-output exposes it as `result.next_page_token` and in `next_actions`:
+output exposes it as `result.next_page_token` and in a structured
+`next_actions` entry. The entry retains the command and every flag needed to
+request the next page:
 
 ```bash
-front list tag --page-token "next-token"
+front list tag --limit 25 --param q=alice --param sort_by=created_at \
+  --page-token "next-token"
 ```
 
-Preserve the original filters, arbitrary parameters, and limit when following
-the next-page action.
+In an action parameter, pass `value` once and repeat the flag once for each item
+in `values`. This preserves the original limit, filters, arbitrary parameters,
+and replacement page token without reconstructing them from a URL. See
+[Output format](output-format.md) for the complete action schema.
 
 ## Shell completion
 

@@ -43,7 +43,9 @@ inject a local mock-server URL through a library constructor.
 
 `FrontClient::get_value` accepts already validated path segments and structured
 query pairs. URL construction percent-encodes each segment and query value. The
-client exposes GET only and has no generic method or request-body parameter.
+client exposes GET only, has no generic method or request-body parameter, and
+does not follow HTTP redirects. Disabling redirects prevents a validated
+fixed-origin request from being redirected to a download or another origin.
 
 The validator rejects absolute URLs, embedded queries, fragments, empty or
 traversal segments, controls, and `download` segments. Resource and relation
@@ -55,6 +57,10 @@ Tokens are resolved into `secrecy::SecretString`. Precedence is
 `FRONT_API_TOKEN`, then the config file's `token_command`. Token commands are
 argv arrays executed directly without an implicit shell. The value is exposed
 only when building the bearer-authenticated request.
+
+Malformed YAML is reported with the config path but without the parser's raw
+message or source chain. This keeps token-command contents and other config
+values out of display and debug output.
 
 The CLI never writes configuration. See [Configuration](configuration.md) and
 the accepted decision to
@@ -76,6 +82,8 @@ models. See [Output format](output-format.md).
 - Pure registry tests cover resource mappings and invalid inputs.
 - Repository contract tests validate public files, YAML, documentation links,
   CI safety, and package metadata.
+- CI runs the same format, Clippy, test, and release-build gate on Linux,
+  macOS, and Windows with Rust 1.88.0.
 
 The full local quality gate is documented in [CONTRIBUTING.md](../CONTRIBUTING.md).
 

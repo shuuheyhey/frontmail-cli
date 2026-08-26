@@ -14,4 +14,11 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 - Typed inbox and conversation workflows plus safe generic GET commands.
 - Contract tests, contributor documentation, and read-only CI checks.
 
+### Changed
+
+- Aligned command, configuration, pagination, architecture, and security
+  documentation with the Rust implementation.
+- Refreshed the API support review against the latest official Front Core API
+  specification revision.
+
 [Unreleased]: https://github.com/shuuheyhey/frontmail-cli/commits/develop

@@ -14,7 +14,7 @@ body:
     attributes:
       label: Front CLI version
       description: Output from `front --version`.
-      placeholder: dev
+      placeholder: 0.1.0
     validations:
       required: true
   - type: input

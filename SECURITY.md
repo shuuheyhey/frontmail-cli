@@ -20,8 +20,14 @@ for this volunteer project.
 
 Front CLI is intentionally read-only. It sends authenticated GET requests only
 to the configured Front API origin and rejects absolute, traversal, fragment,
-and download paths at the generic API boundary. Adding any mutation requires a
-separate approved design and explicit safety review.
+and download paths at the generic API boundary. HTTP redirects are not followed,
+so a validated request cannot cross that fixed-origin boundary through a
+redirect. Adding any mutation requires a separate approved design and explicit
+safety review.
+
+Resolved tokens and token-command arguments are not printed. Configuration
+parse failures are sanitized to avoid including raw YAML values or parser source
+chains in display or debug output.
 
 Rotate a Front API token immediately if it is exposed in a terminal capture,
 log, issue, commit, or other shared artifact.

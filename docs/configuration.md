@@ -20,10 +20,14 @@ configuration directory:
 
 - Linux: `${XDG_CONFIG_HOME:-~/.config}/front/config.yaml`
 - macOS: `~/Library/Application Support/front/config.yaml`
-- Windows: `%APPDATA%\front\config.yaml`
+- Windows: Roaming AppData, typically `%APPDATA%\front\config.yaml`
 
 Run `front config` to see the exact path selected on the current machine.
 A missing file is valid and behaves like an empty configuration.
+
+The command reports `result.token_command` as `(configured)` when the list is
+non-empty and omits the field when it is unset. It never prints the executable,
+arguments, or resolved token.
 
 ## Config file format
 
