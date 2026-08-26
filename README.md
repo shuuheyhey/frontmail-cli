@@ -49,6 +49,7 @@ its `next_actions`.
 |---|---|
 | `front` | Return the command catalog |
 | `front config` | Show configuration state without exposing the token |
+| `front doctor` | Run redacted authentication and read-scope diagnostics |
 | `front inboxes` | List available inboxes |
 | `front inbox [inbox-id]` | Search conversations |
 | `front read <conversation-id>` | Read a compact conversation thread |

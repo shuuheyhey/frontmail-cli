@@ -5,8 +5,8 @@ use frontmail_cli::{
     cli::{Cli, Commands, prepare_read_request},
     client::{ClientError, FrontClient, classify_http},
     commands::{
-        CommandError, InboxOptions, ReadRequest, doctor_json, execute_read, inbox_json,
-        inboxes_json, read_json,
+        CommandError, DoctorAuthenticationError, InboxOptions, ReadRequest, doctor_json,
+        execute_read, inbox_json, inboxes_json, read_json,
     },
     config, envelope,
     resources::ResourceError,
@@ -218,12 +218,22 @@ fn command_name(command: &Commands) -> &'static str {
 }
 
 fn print_command_error(command: &str, error: CommandError, config_path: &std::path::Path) {
-    let (code, fix) = match &error {
+    print_json(command_error_json(command, &error, config_path));
+    std::process::exit(1);
+}
+
+fn command_error_json(
+    command: &str,
+    error: &CommandError,
+    config_path: &std::path::Path,
+) -> serde_json::Result<String> {
+    let (code, fix) = match error {
         CommandError::InvalidDate { .. } => (
             "INVALID_INPUT",
             "Use YYYY-MM-DD format for --before and --after flags".into(),
         ),
-        CommandError::Client(ClientError::Http { status, .. }) => {
+        CommandError::DoctorAuthentication(DoctorAuthenticationError::Http { status })
+        | CommandError::Client(ClientError::Http { status, .. }) => {
             let status = StatusCode::from_u16(*status).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
             let (code, mut fix) = classify_http(status);
             if status == StatusCode::UNAUTHORIZED {
@@ -234,19 +244,21 @@ fn print_command_error(command: &str, error: CommandError, config_path: &std::pa
             }
             (code, fix)
         }
-        CommandError::Client(ClientError::Transport(_)) => {
+        CommandError::DoctorAuthentication(DoctorAuthenticationError::Transport)
+        | CommandError::Client(ClientError::Transport(_)) => {
             ("TRANSPORT_ERROR", "Check network connectivity".into())
         }
-        CommandError::Client(ClientError::Decode(_)) => {
+        CommandError::DoctorAuthentication(DoctorAuthenticationError::Decode)
+        | CommandError::Client(ClientError::Decode(_)) => {
             ("API_ERROR", "API returned an invalid response".into())
         }
-        CommandError::Client(ClientError::Build(_) | ClientError::InvalidBaseUrl) => {
+        CommandError::DoctorAuthentication(DoctorAuthenticationError::ClientConfiguration)
+        | CommandError::Client(ClientError::Build(_) | ClientError::InvalidBaseUrl) => {
             ("CONFIG_ERROR", "Check API client configuration".into())
         }
         CommandError::Serialize(_) => ("INTERNAL_ERROR", "Retry the command".into()),
     };
-    print_failure(command, error.to_string(), code, fix);
-    std::process::exit(1);
+    envelope::failure(command, error.to_string(), code, fix, vec![])
 }
 
 fn flag_was_set(args: &[std::ffi::OsString], flag: &str) -> bool {
@@ -305,4 +317,74 @@ fn print_failure(
     fix: impl Into<String>,
 ) {
     print_json(envelope::failure(command, message, code, fix, vec![]));
+}
+
+#[cfg(test)]
+mod tests {
+    use frontmail_cli::{client::FrontClient, commands::doctor_json, config::ConfigSource};
+    use secrecy::SecretString;
+    use serde_json::Value;
+    use tempfile::tempdir;
+    use wiremock::{
+        Mock, MockServer, ResponseTemplate,
+        matchers::{method, path},
+    };
+
+    use super::command_error_json;
+
+    #[tokio::test]
+    async fn doctor_failure_json_is_sanitized_and_preserves_http_classification() {
+        for (status, expected_code) in [
+            (401, "UNAUTHORIZED"),
+            (403, "FORBIDDEN"),
+            (418, "API_ERROR"),
+        ] {
+            let server = MockServer::start().await;
+            let private_marker = format!("synthetic-private-doctor-body-{status}");
+            Mock::given(method("GET"))
+                .and(path("/me"))
+                .respond_with(
+                    ResponseTemplate::new(status).set_body_json(serde_json::json!({
+                        "_error": {
+                            "message": private_marker.clone(),
+                            "id": "synthetic-private-id",
+                            "name": "synthetic-private-name"
+                        }
+                    })),
+                )
+                .mount(&server)
+                .await;
+            let client = FrontClient::new(
+                server.uri().parse().unwrap(),
+                SecretString::from("synthetic-doctor-token"),
+                "front/test",
+            )
+            .unwrap();
+
+            let error = doctor_json(&client, ConfigSource::Environment, ConfigSource::None, "")
+                .await
+                .unwrap_err();
+            let json = command_error_json(
+                "front doctor",
+                &error,
+                &tempdir().unwrap().path().join("config.yaml"),
+            )
+            .unwrap();
+            let actual: Value = serde_json::from_str(&json).unwrap();
+
+            assert_eq!(actual["command"], "front doctor");
+            assert_eq!(actual["error"]["code"], expected_code);
+            assert_eq!(
+                actual["error"]["message"],
+                format!("doctor authentication check failed (HTTP {status})")
+            );
+            for marker in [
+                private_marker.as_str(),
+                "synthetic-private-id",
+                "synthetic-private-name",
+            ] {
+                assert!(!json.contains(marker), "leaked {marker:?}");
+            }
+        }
+    }
 }

@@ -54,7 +54,8 @@ is truncated at a valid UTF-8 boundary at or below 500 bytes.
 
 `front doctor` resolves configuration and the token once, then performs only
 GET requests. It first calls `/me`; an authentication failure uses the normal
-top-level failure envelope. After authentication succeeds, it checks:
+top-level failure envelope with a fixed, status-only CLI message. Front
+response text is discarded. After authentication succeeds, it checks:
 
 - `/tags?limit=1`;
 - `/inboxes`;
@@ -70,9 +71,10 @@ memory. `configured_user_matches_token` is the boolean `true` or `false` when
 both IDs are available, `unavailable` when they cannot be compared, and
 `not_configured` when there is no effective user.
 
-The success result contains only fixed diagnostic strings, booleans, and source
-names. It never serializes the token, token-command arguments, effective user,
-resource IDs, response bodies, Front-provided error messages, or customer data.
+Doctor output contains only fixed diagnostic strings, booleans, source names,
+and HTTP status where needed for failure classification. It never serializes
+the token, token-command arguments, effective user, resource IDs, response
+bodies, Front-provided error messages, or customer data.
 
 ## Resource-oriented reads
 

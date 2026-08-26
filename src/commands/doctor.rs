@@ -9,6 +9,29 @@ use crate::{
 
 use super::CommandError;
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq, thiserror::Error)]
+pub enum DoctorAuthenticationError {
+    #[error("doctor authentication check failed (HTTP {status})")]
+    Http { status: u16 },
+    #[error("doctor authentication check failed (transport)")]
+    Transport,
+    #[error("doctor authentication check failed (invalid response)")]
+    Decode,
+    #[error("doctor authentication check failed (client configuration)")]
+    ClientConfiguration,
+}
+
+impl From<ClientError> for DoctorAuthenticationError {
+    fn from(error: ClientError) -> Self {
+        match error {
+            ClientError::Http { status, .. } => Self::Http { status },
+            ClientError::Transport(_) => Self::Transport,
+            ClientError::Decode(_) => Self::Decode,
+            ClientError::Build(_) | ClientError::InvalidBaseUrl => Self::ClientConfiguration,
+        }
+    }
+}
+
 #[derive(Serialize)]
 struct DoctorResult {
     token_source: ConfigSource,
@@ -57,7 +80,7 @@ pub async fn doctor_json(
         client
             .get_value(&["me".into()], &[])
             .await
-            .map_err(CommandError::Client)?,
+            .map_err(DoctorAuthenticationError::from)?,
     );
 
     let configured_user_matches_token = if effective_user.is_empty() {

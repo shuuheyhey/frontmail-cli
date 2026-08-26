@@ -1,8 +1,8 @@
 use std::collections::BTreeSet;
 
 use frontmail_cli::{
-    client::{ClientError, FrontClient},
-    commands::{CommandError, doctor_json},
+    client::FrontClient,
+    commands::{CommandError, DoctorAuthenticationError, doctor_json},
     config::ConfigSource,
 };
 use secrecy::SecretString;
@@ -14,6 +14,8 @@ use wiremock::{
 
 const SYNTHETIC_TOKEN: &str = "synthetic-doctor-token";
 const SYNTHETIC_USER: &str = "diagnostic user@example.test";
+const HOSTILE_USER: &str = "user/segment?query#fragment%raw-雪@example.test";
+const ENCODED_HOSTILE_USER: &str = "user%2Fsegment%3Fquery%23fragment%25raw-%E9%9B%AA@example.test";
 const AUTHENTICATED_ID: &str = "tea_authenticated_private_id";
 
 fn client(server: &MockServer) -> FrontClient {
@@ -278,6 +280,47 @@ async fn doctor_skips_user_lookup_when_no_effective_user_is_configured() {
 }
 
 #[tokio::test]
+async fn doctor_encodes_a_hostile_user_as_exactly_one_path_segment() {
+    let server = MockServer::start().await;
+    mount_authentication(&server, AUTHENTICATED_ID).await;
+    Mock::given(method("GET"))
+        .and(path(format!("/teammates/alt:email:{ENCODED_HOSTILE_USER}")))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "id": AUTHENTICATED_ID,
+            "email": HOSTILE_USER
+        })))
+        .mount(&server)
+        .await;
+    mount_successful_optional_checks(&server).await;
+
+    let output = doctor_json(
+        &client(&server),
+        ConfigSource::Environment,
+        ConfigSource::Environment,
+        HOSTILE_USER,
+    )
+    .await
+    .unwrap();
+    let actual: Value = serde_json::from_str(&output).unwrap();
+
+    assert_eq!(actual["result"]["configured_user_matches_token"], true);
+    assert!(!output.contains(HOSTILE_USER));
+    assert!(!output.contains(ENCODED_HOSTILE_USER));
+
+    let requests = server.received_requests().await.unwrap();
+    let alias_request = requests
+        .iter()
+        .find(|request| request.url.path().starts_with("/teammates/alt:email:"))
+        .expect("encoded teammate alias request");
+    assert_eq!(
+        alias_request.url.path(),
+        format!("/teammates/alt:email:{ENCODED_HOSTILE_USER}")
+    );
+    assert_eq!(alias_request.url.query(), None);
+    assert_eq!(alias_request.url.fragment(), None);
+}
+
+#[tokio::test]
 async fn doctor_authentication_failure_stops_before_optional_checks() {
     let server = MockServer::start().await;
     Mock::given(method("GET"))
@@ -297,9 +340,12 @@ async fn doctor_authentication_failure_stops_before_optional_checks() {
     .await
     .unwrap_err();
 
+    let rendered = error.to_string();
+    assert_eq!(rendered, "doctor authentication check failed (HTTP 401)");
+    assert!(!rendered.contains("Private authentication error body"));
     assert!(matches!(
         error,
-        CommandError::Client(ClientError::Http { status: 401, .. })
+        CommandError::DoctorAuthentication(DoctorAuthenticationError::Http { status: 401 })
     ));
     let requests = server.received_requests().await.unwrap();
     assert_eq!(requests.len(), 1);

@@ -34,5 +34,7 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
   configured Front API origin.
 - Use a message's `from` recipient as the sender when its author is absent.
 - Report the requested command for authentication and configuration errors.
+- Redact Front-provided response text from `front doctor` authentication
+  failures and keep encoded teammate-alias checks free of query components.
 
 [Unreleased]: https://github.com/shuuheyhey/frontmail-cli/commits/develop

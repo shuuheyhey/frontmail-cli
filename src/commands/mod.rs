@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 
 mod doctor;
 mod read_api;
-pub use doctor::doctor_json;
+pub use doctor::{DoctorAuthenticationError, doctor_json};
 pub use read_api::{ReadRequest, execute_read, whoami_json};
 
 use chrono::{DateTime, NaiveDate, SecondsFormat, Utc};
@@ -23,6 +23,8 @@ pub const MAX_TEXT_LENGTH: usize = 500;
 
 #[derive(Debug, thiserror::Error)]
 pub enum CommandError {
+    #[error(transparent)]
+    DoctorAuthentication(#[from] DoctorAuthenticationError),
     #[error(transparent)]
     Client(#[from] ClientError),
     #[error("invalid date {value:?}, expected YYYY-MM-DD format")]

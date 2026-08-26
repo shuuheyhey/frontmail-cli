@@ -119,7 +119,7 @@ impl FrontClient {
     ) -> Result<serde_json::Value, ClientError> {
         let segments: Vec<_> = segments.iter().map(String::as_str).collect();
         let mut url = self.url(&segments)?;
-        {
+        if !query.is_empty() {
             let mut pairs = url.query_pairs_mut();
             for (name, value) in query {
                 pairs.append_pair(name, value);

@@ -79,7 +79,9 @@ result:
 ```
 
 `authentication` is `ok` in a success result because `/me` failures remain
-top-level failures. Each optional read check is `ok`, `forbidden`, or `error`.
+top-level failures. Those failures contain only a fixed CLI message and the
+HTTP status used for normal error-code classification; Front response text is
+discarded. Each optional read check is `ok`, `forbidden`, or `error`.
 `configured_user_matches_token` is `true`, `false`, `unavailable`, or
 `not_configured`. The two boolean states are JSON booleans; the unavailable
 states are strings.
@@ -152,6 +154,6 @@ before configuration resolution and before any HTTP request.
 
 Resolved tokens are never part of success output, error output, URLs, query
 parameters, debug representations, or `front config`. `front config` does not
-execute `token_command`. API error messages may still contain Front-provided
-text in normal top-level failures, so redact output before sharing it. Doctor
-success output always replaces optional API errors with fixed status strings.
+execute `token_command`. Doctor output never includes Front-provided response
+text: required authentication failures use a fixed status-only message, and
+optional API errors use fixed status strings.
