@@ -265,6 +265,58 @@ async fn get_value_follows_a_query_only_301_location_with_a_url_value() {
 }
 
 #[tokio::test]
+async fn get_value_returns_the_original_301_for_invalid_redirect_locations() {
+    for location in [
+        "?\tcursor=next",
+        "?cursor=%ZZ",
+        "/safe#fragment",
+        "http://[::1",
+    ] {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/safe"))
+            .respond_with(ResponseTemplate::new(301).insert_header("Location", location))
+            .expect(1)
+            .mount(&server)
+            .await;
+        Mock::given(method("GET"))
+            .and(path("/next"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({})))
+            .expect(0)
+            .mount(&server)
+            .await;
+
+        let error = client(&server)
+            .get_value(&["safe".into()], &[])
+            .await
+            .unwrap_err();
+        assert!(matches!(error, ClientError::Http { status: 301, .. }));
+    }
+}
+
+#[tokio::test]
+async fn get_value_returns_the_original_301_without_a_location() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/safe"))
+        .respond_with(ResponseTemplate::new(301))
+        .expect(1)
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/next"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({})))
+        .expect(0)
+        .mount(&server)
+        .await;
+    let error = client(&server)
+        .get_value(&["safe".into()], &[])
+        .await
+        .unwrap_err();
+    assert!(matches!(error, ClientError::Http { status: 301, .. }));
+}
+
+#[tokio::test]
 async fn get_value_does_not_follow_a_301_to_a_download_path() {
     let server = MockServer::start().await;
     Mock::given(method("GET"))
