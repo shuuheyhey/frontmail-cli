@@ -10,6 +10,12 @@ pub enum AppError {
     },
     #[error("parse config {path}")]
     ParseConfig { path: PathBuf },
+    #[error("profile names must contain at least one non-whitespace character")]
+    InvalidProfileName,
+    #[error("default_profile must contain at least one non-whitespace character")]
+    InvalidDefaultProfileName,
+    #[error("--profile must contain at least one non-whitespace character")]
+    InvalidExplicitProfileName,
     #[error("unknown profile {name:?}; available profiles: {available}")]
     UnknownProfile { name: String, available: String },
     #[error("default_profile {name:?} is not configured; available profiles: {available}")]
@@ -37,6 +43,9 @@ impl AppError {
         match self {
             Self::ReadConfig { .. }
             | Self::ParseConfig { .. }
+            | Self::InvalidProfileName
+            | Self::InvalidDefaultProfileName
+            | Self::InvalidExplicitProfileName
             | Self::UnknownProfile { .. }
             | Self::UnknownDefaultProfile { .. }
             | Self::ProfileRequired { .. } => "CONFIG_ERROR",

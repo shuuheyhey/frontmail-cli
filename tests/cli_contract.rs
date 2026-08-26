@@ -491,6 +491,56 @@ fn no_profile_keeps_legacy_environment_precedence_even_when_profiles_exist() {
 
 #[test]
 #[cfg(not(target_os = "windows"))]
+fn blank_explicit_profile_arguments_are_safe_canonical_config_errors() {
+    const PROFILE_VALUE: &str = "profile-field-value-must-not-appear";
+    const AMBIENT_VALUE: &str = "ambient-value-must-not-appear";
+    let dir = tempdir().unwrap();
+    let (_, config_path) = isolated_config_command(dir.path());
+    fs::create_dir_all(config_path.parent().unwrap()).unwrap();
+    fs::write(
+        config_path,
+        format!(
+            "profiles:\n  work:\n    token_command: [never-run, {PROFILE_VALUE}]\n    user: {PROFILE_VALUE}\n"
+        ),
+    )
+    .unwrap();
+
+    let cases: &[(&[&str], &str)] = &[
+        (&["config", "--profile", ""], "front config"),
+        (&["list", "tags", "--profile", " \t "], "front list tag"),
+    ];
+
+    for (args, expected_command) in cases {
+        let (mut command, _) = isolated_config_command(dir.path());
+        let output = command
+            .args(*args)
+            .env("FRONT_API_TOKEN", AMBIENT_VALUE)
+            .env("FRONT_USER", AMBIENT_VALUE)
+            .output()
+            .unwrap();
+
+        assert_eq!(output.status.code(), Some(1), "args: {args:?}");
+        let actual: Value = serde_json::from_slice(&output.stdout).unwrap();
+        assert_eq!(actual["command"], *expected_command, "args: {args:?}");
+        assert_eq!(actual["error"]["code"], "CONFIG_ERROR", "args: {args:?}");
+        assert!(
+            actual["error"]["message"]
+                .as_str()
+                .unwrap()
+                .contains("non-whitespace"),
+            "args: {args:?}"
+        );
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        for value in [PROFILE_VALUE, AMBIENT_VALUE] {
+            assert!(!stdout.contains(value), "args: {args:?}");
+            assert!(!stderr.contains(value), "args: {args:?}");
+        }
+    }
+}
+
+#[test]
+#[cfg(not(target_os = "windows"))]
 fn malformed_config_does_not_expose_a_sensitive_value() {
     const SENSITIVE: &str = "synthetic-sensitive-value";
     let dir = tempdir().unwrap();

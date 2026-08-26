@@ -144,23 +144,11 @@ async fn run_api_command(
             std::process::exit(1);
         }
     };
+    let auth_context = selected.auth_context();
     let token = match selected.resolve_token() {
         Ok(token) => token,
         Err(error) => {
-            let fix = selected.profile_name().map_or_else(
-                || {
-                    format!(
-                        "Set FRONT_API_TOKEN or configure token_command in {}",
-                        config_path.display()
-                    )
-                },
-                |name| {
-                    format!(
-                        "Configure token_command for profile {name:?} in {}",
-                        config_path.display()
-                    )
-                },
-            );
+            let fix = authentication_fix(auth_context, &config_path);
             print_failure(&requested_command, error.to_string(), "UNAUTHORIZED", fix);
             std::process::exit(1);
         }
@@ -172,6 +160,7 @@ async fn run_api_command(
                 &requested_command,
                 CommandError::Client(error),
                 &config_path,
+                auth_context,
             );
             return;
         }
@@ -227,7 +216,7 @@ async fn run_api_command(
 
     match result {
         Ok(json) => print!("{json}"),
-        Err(error) => print_command_error(&command_name, error, &config_path),
+        Err(error) => print_command_error(&command_name, error, &config_path, auth_context),
     }
 }
 
@@ -247,17 +236,32 @@ fn command_name(command: &Commands) -> &'static str {
     }
 }
 
-fn print_command_error(command: &str, error: CommandError, config_path: &std::path::Path) {
-    print_json(command_error_json(command, &error, config_path));
-    std::process::exit(1);
+struct CommandErrorPresentation<'a> {
+    command: &'a str,
+    code: &'static str,
+    fix: String,
 }
 
-fn command_error_json(
-    command: &str,
+fn authentication_fix(context: config::AuthContext<'_>, config_path: &std::path::Path) -> String {
+    match context {
+        config::AuthContext::Legacy => format!(
+            "Set FRONT_API_TOKEN or configure token_command in {}",
+            config_path.display()
+        ),
+        config::AuthContext::NamedProfile(name) => format!(
+            "Configure token_command for profile {name:?} in {}",
+            config_path.display()
+        ),
+    }
+}
+
+fn command_error_presentation<'a>(
+    command: &'a str,
     error: &CommandError,
     config_path: &std::path::Path,
-) -> serde_json::Result<String> {
-    let (code, fix) = match error {
+    auth_context: config::AuthContext<'_>,
+) -> CommandErrorPresentation<'a> {
+    let (code, fix) = match &error {
         CommandError::InvalidDate { .. } => (
             "INVALID_INPUT",
             "Use YYYY-MM-DD format for --before and --after flags".into(),
@@ -267,10 +271,7 @@ fn command_error_json(
             let status = StatusCode::from_u16(*status).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
             let (code, mut fix) = classify_http(status);
             if status == StatusCode::UNAUTHORIZED {
-                fix = format!(
-                    "Set FRONT_API_TOKEN or configure token_command in {}",
-                    config_path.display()
-                );
+                fix = authentication_fix(auth_context, config_path);
             }
             (code, fix)
         }
@@ -288,7 +289,38 @@ fn command_error_json(
         }
         CommandError::Serialize(_) => ("INTERNAL_ERROR", "Retry the command".into()),
     };
-    envelope::failure(command, error.to_string(), code, fix, vec![])
+    CommandErrorPresentation { command, code, fix }
+}
+
+fn command_error_json(
+    command: &str,
+    error: &CommandError,
+    config_path: &std::path::Path,
+    auth_context: config::AuthContext<'_>,
+) -> serde_json::Result<String> {
+    let presentation = command_error_presentation(command, error, config_path, auth_context);
+    envelope::failure(
+        presentation.command,
+        error.to_string(),
+        presentation.code,
+        presentation.fix,
+        vec![],
+    )
+}
+
+fn print_command_error(
+    command: &str,
+    error: CommandError,
+    config_path: &std::path::Path,
+    auth_context: config::AuthContext<'_>,
+) {
+    print_json(command_error_json(
+        command,
+        &error,
+        config_path,
+        auth_context,
+    ));
+    std::process::exit(1);
 }
 
 fn flag_was_set(args: &[std::ffi::OsString], flag: &str) -> bool {
@@ -370,7 +402,9 @@ fn print_failure(
 
 #[cfg(test)]
 mod tests {
-    use frontmail_cli::{client::FrontClient, commands::doctor_json, config::ConfigSource};
+    use std::{collections::BTreeMap, path::Path};
+
+    use super::*;
     use secrecy::SecretString;
     use serde_json::Value;
     use tempfile::tempdir;
@@ -378,8 +412,6 @@ mod tests {
         Mock, MockServer, ResponseTemplate,
         matchers::{method, path},
     };
-
-    use super::command_error_json;
 
     #[tokio::test]
     async fn doctor_failure_json_is_sanitized_and_preserves_http_classification() {
@@ -410,13 +442,19 @@ mod tests {
             )
             .unwrap();
 
-            let error = doctor_json(&client, ConfigSource::Environment, ConfigSource::None, "")
-                .await
-                .unwrap_err();
+            let error = doctor_json(
+                &client,
+                config::ConfigSource::Environment,
+                config::ConfigSource::None,
+                "",
+            )
+            .await
+            .unwrap_err();
             let json = command_error_json(
                 "front doctor",
                 &error,
                 &tempdir().unwrap().path().join("config.yaml"),
+                config::AuthContext::Legacy,
             )
             .unwrap();
             let actual: Value = serde_json::from_str(&json).unwrap();
@@ -435,5 +473,69 @@ mod tests {
                 assert!(!json.contains(marker), "leaked {marker:?}");
             }
         }
+    }
+
+    fn unauthorized_error() -> CommandError {
+        CommandError::Client(ClientError::Http {
+            status: StatusCode::UNAUTHORIZED.as_u16(),
+            message: "authentication rejected".into(),
+        })
+    }
+
+    #[test]
+    fn named_profile_http_401_keeps_canonical_metadata_and_profile_fix() {
+        const PROFILE_USER: &str = "profile-user-must-not-appear";
+        const COMMAND_ARG: &str = "profile-command-argument-must-not-appear";
+        const AMBIENT_TOKEN: &str = "ambient-token-must-not-appear";
+        let loaded = config::Config {
+            profiles: BTreeMap::from([(
+                "work".into(),
+                config::Profile {
+                    token_command: vec!["program".into(), COMMAND_ARG.into()],
+                    user: PROFILE_USER.into(),
+                },
+            )]),
+            ..config::Config::default()
+        };
+        let env = BTreeMap::from([("FRONT_API_TOKEN".into(), AMBIENT_TOKEN.into())]);
+        let selected = config::select_effective_config(&loaded, &env, Some("work")).unwrap();
+        let error = unauthorized_error();
+        let presentation = command_error_presentation(
+            "front list tag",
+            &error,
+            Path::new("/config/front/config.yaml"),
+            selected.auth_context(),
+        );
+
+        assert_eq!(presentation.command, "front list tag");
+        assert_eq!(presentation.code, "UNAUTHORIZED");
+        assert_eq!(
+            presentation.fix,
+            "Configure token_command for profile \"work\" in /config/front/config.yaml"
+        );
+        for value in [PROFILE_USER, COMMAND_ARG, AMBIENT_TOKEN] {
+            assert!(!presentation.fix.contains(value));
+        }
+    }
+
+    #[test]
+    fn legacy_http_401_fix_remains_byte_for_byte_compatible() {
+        let loaded = config::Config::default();
+        let env = BTreeMap::from([("FRONT_API_TOKEN".into(), "legacy-token".into())]);
+        let selected = config::select_effective_config(&loaded, &env, None).unwrap();
+        let error = unauthorized_error();
+        let presentation = command_error_presentation(
+            "front inboxes",
+            &error,
+            Path::new("/config/front/config.yaml"),
+            selected.auth_context(),
+        );
+
+        assert_eq!(presentation.command, "front inboxes");
+        assert_eq!(presentation.code, "UNAUTHORIZED");
+        assert_eq!(
+            presentation.fix,
+            "Set FRONT_API_TOKEN or configure token_command in /config/front/config.yaml"
+        );
     }
 }

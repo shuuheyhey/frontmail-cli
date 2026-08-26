@@ -27,6 +27,11 @@ followed by `default_profile`, then automatic selection when exactly one
 profile exists. See [Configuration](configuration.md) for the complete truth
 table and redaction behavior.
 
+Profile names must contain a non-whitespace character. Names are exact and are
+not trimmed, so avoid leading or trailing spaces. An explicit empty or
+whitespace-only argument returns a canonical JSON `CONFIG_ERROR` after clap has
+accepted the argument value.
+
 | Command | Description |
 |---|---|
 | `front` | Return available commands and parameters |

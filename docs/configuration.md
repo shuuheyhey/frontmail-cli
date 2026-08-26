@@ -33,6 +33,19 @@ profiles without a default returns `CONFIG_ERROR`. The error may list profile
 names, but never profile users or token-command values. A configured
 `default_profile` is validated before the one-profile automatic fallback.
 
+Every profile key, `default_profile`, and explicit `--profile` value must
+contain at least one non-whitespace character. Blank values return
+`CONFIG_ERROR` at the shared selection boundary before any profile is chosen,
+and blank keys are never rendered as available names. Non-blank names are
+matched exactly: Front CLI does not trim leading or trailing spaces or treat a
+trimmed spelling as an alias.
+
+If Front returns HTTP 401, legacy selection retains the existing guidance to
+check `FRONT_API_TOKEN` or top-level `token_command`. Named-profile selection
+instead points to that profile's `token_command`; it does not suggest ambient
+or top-level credentials that the selected profile cannot use. Only the
+profile name and config path may appear in this guidance.
+
 ## Legacy credential resolution
 
 | Value | First choice | Fallback | Missing behavior |

@@ -48,6 +48,12 @@ pub enum ProfileSource {
     Single,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum AuthContext<'a> {
+    Legacy,
+    NamedProfile(&'a str),
+}
+
 pub struct EffectiveConfig {
     profile_name: Option<String>,
     profile_source: Option<ProfileSource>,
@@ -73,6 +79,12 @@ impl std::fmt::Debug for EffectiveConfig {
 }
 
 impl EffectiveConfig {
+    pub fn auth_context(&self) -> AuthContext<'_> {
+        self.profile_name
+            .as_deref()
+            .map_or(AuthContext::Legacy, AuthContext::NamedProfile)
+    }
+
     pub fn profile_name(&self) -> Option<&str> {
         self.profile_name.as_deref()
     }
@@ -139,6 +151,8 @@ pub fn select_effective_config(
     env: &BTreeMap<String, String>,
     explicit_profile: Option<&str>,
 ) -> Result<EffectiveConfig, AppError> {
+    validate_profile_names(config, explicit_profile)?;
+
     if let Some(name) = explicit_profile {
         let profile = config
             .profiles
@@ -179,6 +193,23 @@ pub fn select_effective_config(
             available: available_profiles(config),
         }),
     }
+}
+
+fn validate_profile_names(config: &Config, explicit_profile: Option<&str>) -> Result<(), AppError> {
+    if config.profiles.keys().any(|name| name.trim().is_empty()) {
+        return Err(AppError::InvalidProfileName);
+    }
+    if config
+        .default_profile
+        .as_deref()
+        .is_some_and(|name| name.trim().is_empty())
+    {
+        return Err(AppError::InvalidDefaultProfileName);
+    }
+    if explicit_profile.is_some_and(|name| name.trim().is_empty()) {
+        return Err(AppError::InvalidExplicitProfileName);
+    }
+    Ok(())
 }
 
 fn legacy_config(config: &Config, env: &BTreeMap<String, String>) -> EffectiveConfig {

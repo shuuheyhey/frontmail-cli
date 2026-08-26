@@ -32,6 +32,9 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 - Reject structured pagination flags before authentication when a top-level
   resource does not document the corresponding query parameter.
 - Reject collection limits outside the inclusive range of 1 through 100.
+- Keep HTTP 401 remediation scoped to the selected named profile, while
+  preserving legacy token guidance, and reject empty or whitespace-only
+  profile keys and selectors.
 - Follow up to three validated HTTP 301 redirects while preserving the
   configured Front API origin.
 - Use a message's `from` recipient as the sender when its author is absent.

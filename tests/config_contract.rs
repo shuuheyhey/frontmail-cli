@@ -365,3 +365,99 @@ fn selected_profile_token_command_preserves_an_argument_with_spaces() {
 
     assert_eq!(token.expose_secret(), "profile token with spaces");
 }
+
+#[test]
+fn blank_profile_keys_are_rejected_before_auto_default_or_multiple_selection() {
+    const PROFILE_VALUE: &str = "profile-value-must-not-appear";
+    let cases = [
+        Config {
+            profiles: BTreeMap::from([(
+                String::new(),
+                profile(&["program", PROFILE_VALUE], PROFILE_VALUE),
+            )]),
+            ..Config::default()
+        },
+        Config {
+            default_profile: Some(String::new()),
+            profiles: BTreeMap::from([(
+                String::new(),
+                profile(&["program", PROFILE_VALUE], PROFILE_VALUE),
+            )]),
+            ..Config::default()
+        },
+        Config {
+            profiles: BTreeMap::from([
+                (
+                    String::new(),
+                    profile(&["program", PROFILE_VALUE], PROFILE_VALUE),
+                ),
+                ("work".into(), Profile::default()),
+            ]),
+            ..Config::default()
+        },
+        Config {
+            profiles: BTreeMap::from([(
+                " \t ".into(),
+                profile(&["program", PROFILE_VALUE], PROFILE_VALUE),
+            )]),
+            ..Config::default()
+        },
+    ];
+
+    for config in cases {
+        let error = select_effective_config(&config, &BTreeMap::new(), None).unwrap_err();
+        let message = error.to_string();
+        assert_eq!(error.code(), "CONFIG_ERROR");
+        assert!(message.contains("profile names"));
+        assert!(message.contains("non-whitespace"));
+        assert!(!message.contains(PROFILE_VALUE));
+        assert!(!format!("{error:?}").contains(PROFILE_VALUE));
+    }
+}
+
+#[test]
+fn blank_default_profile_values_are_rejected() {
+    for default_profile in ["", " \t "] {
+        let config = Config {
+            default_profile: Some(default_profile.into()),
+            profiles: BTreeMap::from([("work".into(), Profile::default())]),
+            ..Config::default()
+        };
+
+        let error = select_effective_config(&config, &BTreeMap::new(), None).unwrap_err();
+        let message = error.to_string();
+        assert_eq!(error.code(), "CONFIG_ERROR");
+        assert!(message.contains("default_profile"));
+        assert!(message.contains("non-whitespace"));
+    }
+}
+
+#[test]
+fn blank_explicit_profile_values_are_rejected() {
+    let config = Config {
+        profiles: BTreeMap::from([("work".into(), Profile::default())]),
+        ..Config::default()
+    };
+
+    for explicit in ["", " \t "] {
+        let error = select_effective_config(&config, &BTreeMap::new(), Some(explicit)).unwrap_err();
+        let message = error.to_string();
+        assert_eq!(error.code(), "CONFIG_ERROR");
+        assert!(message.contains("--profile"));
+        assert!(message.contains("non-whitespace"));
+    }
+}
+
+#[test]
+fn non_blank_profile_names_are_not_trimmed_or_aliased() {
+    let config = Config {
+        profiles: BTreeMap::from([(" work ".into(), Profile::default())]),
+        ..Config::default()
+    };
+
+    let selected = select_effective_config(&config, &BTreeMap::new(), Some(" work ")).unwrap();
+    assert_eq!(selected.profile_name(), Some(" work "));
+
+    let error = select_effective_config(&config, &BTreeMap::new(), Some("work")).unwrap_err();
+    assert!(error.to_string().contains(" work "));
+}
