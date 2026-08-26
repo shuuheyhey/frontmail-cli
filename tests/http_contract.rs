@@ -150,3 +150,79 @@ async fn get_value_does_not_follow_a_redirect_to_a_download_path() {
 
     assert!(matches!(error, ClientError::Http { status: 302, .. }));
 }
+
+#[tokio::test]
+async fn get_value_follows_a_safe_301_on_the_configured_origin() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/old"))
+        .respond_with(ResponseTemplate::new(301).insert_header("Location", "/new"))
+        .expect(1)
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/new"))
+        .and(header("authorization", "Bearer test-token"))
+        .and(header("user-agent", "front/test"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "id": "redirected"
+        })))
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    let value = client(&server)
+        .get_value(&["old".into()], &[])
+        .await
+        .unwrap();
+
+    assert_eq!(value["id"], "redirected");
+}
+
+#[tokio::test]
+async fn get_value_does_not_follow_a_301_to_a_download_path() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/safe"))
+        .respond_with(ResponseTemplate::new(301).insert_header("Location", "/download/file"))
+        .expect(1)
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/download/file"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({})))
+        .expect(0)
+        .mount(&server)
+        .await;
+
+    let error = client(&server)
+        .get_value(&["safe".into()], &[])
+        .await
+        .unwrap_err();
+
+    assert!(matches!(error, ClientError::Http { status: 301, .. }));
+}
+
+#[tokio::test]
+async fn get_value_does_not_follow_a_301_with_a_traversal_path() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/safe"))
+        .respond_with(ResponseTemplate::new(301).insert_header("Location", "/../new"))
+        .expect(1)
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/new"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({})))
+        .expect(0)
+        .mount(&server)
+        .await;
+
+    let error = client(&server)
+        .get_value(&["safe".into()], &[])
+        .await
+        .unwrap_err();
+
+    assert!(matches!(error, ClientError::Http { status: 301, .. }));
+}

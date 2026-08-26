@@ -6,6 +6,7 @@ use serde::de::DeserializeOwned;
 use url::Url;
 
 use crate::models::{ConversationResponse, InboxResponse, MessageResponse, Page};
+use crate::resources::validate_api_path;
 
 pub const PRODUCTION_BASE_URL: &str = "https://api2.frontapp.com";
 
@@ -138,26 +139,84 @@ impl FrontClient {
         Ok(url)
     }
 
-    async fn get_json<T: DeserializeOwned>(&self, url: Url) -> Result<T, ClientError> {
-        let response = self
-            .http
-            .get(url)
-            .bearer_auth(self.token.expose_secret())
-            .header(reqwest::header::USER_AGENT, &self.user_agent)
-            .send()
-            .await
-            .map_err(ClientError::Transport)?;
-        let status = response.status();
-        let body = response.bytes().await.map_err(ClientError::Transport)?;
-        if !status.is_success() {
-            return Err(ClientError::Http {
-                status: status.as_u16(),
-                message: api_error_message(&body)
-                    .unwrap_or_else(|| format!("HTTP {}", status.as_u16())),
-            });
+    async fn get_json<T: DeserializeOwned>(&self, mut url: Url) -> Result<T, ClientError> {
+        for redirects_followed in 0..=3 {
+            let response = self
+                .http
+                .get(url.clone())
+                .bearer_auth(self.token.expose_secret())
+                .header(reqwest::header::USER_AGENT, &self.user_agent)
+                .send()
+                .await
+                .map_err(ClientError::Transport)?;
+            let status = response.status();
+            if status == StatusCode::MOVED_PERMANENTLY
+                && redirects_followed < 3
+                && let Some(redirect_url) = self.approved_redirect_url(&url, &response)
+            {
+                url = redirect_url;
+                continue;
+            }
+
+            let body = response.bytes().await.map_err(ClientError::Transport)?;
+            if !status.is_success() {
+                return Err(ClientError::Http {
+                    status: status.as_u16(),
+                    message: api_error_message(&body)
+                        .unwrap_or_else(|| format!("HTTP {}", status.as_u16())),
+                });
+            }
+            return serde_json::from_slice(&body).map_err(ClientError::Decode);
         }
-        serde_json::from_slice(&body).map_err(ClientError::Decode)
+        unreachable!("redirect loop always returns or follows at most three redirects")
     }
+
+    fn approved_redirect_url(
+        &self,
+        current_url: &Url,
+        response: &reqwest::Response,
+    ) -> Option<Url> {
+        let location = response
+            .headers()
+            .get(reqwest::header::LOCATION)?
+            .to_str()
+            .ok()?;
+        let segments = validate_api_path(redirect_location_path(location)?).ok()?;
+        let target = current_url.join(location).ok()?;
+        if target.fragment().is_some() || !self.redirect_origin_is_approved(&target) {
+            return None;
+        }
+        let segment_refs: Vec<_> = segments.iter().map(String::as_str).collect();
+        let mut approved = self.url(&segment_refs).ok()?;
+        approved.set_query(target.query());
+        Some(approved)
+    }
+
+    fn redirect_origin_is_approved(&self, target: &Url) -> bool {
+        target.origin() == self.base_url.origin()
+            || (self.uses_production_base()
+                && target.scheme() == "https"
+                && target.host_str().is_some_and(|host| {
+                    host == "api2.frontapp.com" || host.ends_with(".api.frontapp.com")
+                }))
+    }
+
+    fn uses_production_base(&self) -> bool {
+        self.base_url.scheme() == "https"
+            && self.base_url.host_str() == Some("api2.frontapp.com")
+            && self.base_url.port_or_known_default() == Some(443)
+    }
+}
+
+fn redirect_location_path(location: &str) -> Option<&str> {
+    let path_and_query = if let Some(scheme) = location.find("://") {
+        let authority_and_path = &location[scheme + 3..];
+        let path_start = authority_and_path.find(['/', '?', '#'])?;
+        &authority_and_path[path_start..]
+    } else {
+        location
+    };
+    path_and_query.split(['?', '#']).next()
 }
 
 fn api_error_message(body: &[u8]) -> Option<String> {
