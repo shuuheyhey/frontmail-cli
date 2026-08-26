@@ -8,6 +8,7 @@ use frontmail_cli::{
         CommandError, InboxOptions, ReadRequest, execute_read, inbox_json, inboxes_json, read_json,
     },
     config, envelope,
+    resources::ResourceError,
 };
 use reqwest::StatusCode;
 use serde::Serialize;
@@ -69,8 +70,14 @@ async fn main() {
             let request = match prepare_read_request(&command) {
                 Ok(request) => request,
                 Err(error) => {
+                    let command = match &error {
+                        ResourceError::UnsupportedCollectionQueryParameter { resource, .. } => {
+                            format!("front list {resource}")
+                        }
+                        _ => command_name(&command).into(),
+                    };
                     print_failure(
-                        command_name(&command),
+                        command,
                         error.to_string(),
                         "INVALID_INPUT",
                         "Run 'front' to see supported resources and path rules",

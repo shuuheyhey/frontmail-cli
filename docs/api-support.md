@@ -40,35 +40,36 @@ All names accept singular and plural forms. Underscores are normalized to
 hyphens. `conv`, `msg`, `template`, and `template-folder` are also accepted
 aliases.
 
-| Resource | Official segment | `list` | `get` |
-|---|---|---:|---:|
-| `account` | `accounts` | yes | yes |
-| `channel` | `channels` | yes | yes |
-| `comment` | `comments` | no | yes |
-| `contact` | `contacts` | yes | yes |
-| `conversation` | `conversations` | yes | yes |
-| `event` | `events` | yes | yes |
-| `inbox` | `inboxes` | yes | yes |
-| `knowledge-base` | `knowledge_bases` | yes | yes |
-| `knowledge-base-article` | `knowledge_base_articles` | no | yes |
-| `knowledge-base-category` | `knowledge_base_categories` | no | yes |
-| `link` | `links` | yes | yes |
-| `message` | `messages` | no | yes |
-| `message-template` | `message_templates` | yes | yes |
-| `message-template-folder` | `message_template_folders` | yes | yes |
-| `rule` | `rules` | yes | yes |
-| `shift` | `shifts` | yes | yes |
-| `signature` | `signatures` | no | yes |
-| `tag` | `tags` | yes | yes |
-| `teammate` | `teammates` | yes | yes |
-| `teammate-group` | `teammate_groups` | yes | yes |
-| `team` | `teams` | yes | yes |
-| `time-off` | `time_offs` | no | yes |
-| `view` | `views` | yes | yes |
+| Resource | Official segment | `list` | `get` | `--limit` | `--page-token` |
+|---|---|---:|---:|---:|---:|
+| `account` | `accounts` | yes | yes | yes | yes |
+| `channel` | `channels` | yes | yes | no | no |
+| `comment` | `comments` | no | yes | n/a | n/a |
+| `contact` | `contacts` | yes | yes | yes | yes |
+| `conversation` | `conversations` | yes | yes | yes | yes |
+| `event` | `events` | yes | yes | yes | yes |
+| `inbox` | `inboxes` | yes | yes | no | no |
+| `knowledge-base` | `knowledge_bases` | yes | yes | no | no |
+| `knowledge-base-article` | `knowledge_base_articles` | no | yes | n/a | n/a |
+| `knowledge-base-category` | `knowledge_base_categories` | no | yes | n/a | n/a |
+| `link` | `links` | yes | yes | yes | yes |
+| `message` | `messages` | no | yes | n/a | n/a |
+| `message-template` | `message_templates` | yes | yes | no | no |
+| `message-template-folder` | `message_template_folders` | yes | yes | no | no |
+| `rule` | `rules` | yes | yes | no | no |
+| `shift` | `shifts` | yes | yes | no | no |
+| `signature` | `signatures` | no | yes | n/a | n/a |
+| `tag` | `tags` | yes | yes | yes | yes |
+| `teammate` | `teammates` | yes | yes | no | no |
+| `teammate-group` | `teammate_groups` | yes | yes | no | no |
+| `team` | `teams` | yes | yes | no | no |
+| `time-off` | `time_offs` | no | yes | n/a | n/a |
+| `view` | `views` | yes | yes | yes | yes |
 
 `list` is unavailable when the official specification has no top-level GET
 collection. Those resources remain available through `get` and parent
-relations.
+relations. The two flag columns describe parameters documented on the official
+top-level GET collection, not parameters accepted by nested relations.
 
 ## Relation shortcuts
 
@@ -108,7 +109,13 @@ front api get /accounts/custom_fields --param limit=50
 ```
 
 - `--param` is repeatable and splits on the first `=` only.
-- `--limit` and `--page-token` are appended as structured query pairs.
+- Supported `--limit` and `--page-token` values are appended as structured
+  query pairs.
+- Supplying either structured flag to a `front list` resource marked `no`
+  exits with status 1 and an `INVALID_INPUT` envelope labeled with the
+  canonical singular command, before configuration or token resolution.
+- Repeatable `--param` remains available for every listable resource, including
+  explicit `limit=...` and `page_token=...` pairs through the generic gateway.
 - The entire API response is retained under `result.data`.
 - When `_results` is an array, `result.count` reports the number returned.
 - When `_pagination.next` contains a page token, the token is exposed in the

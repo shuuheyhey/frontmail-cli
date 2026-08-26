@@ -63,11 +63,21 @@ Resource names accept documented singular, plural, and short aliases. Not every
 resource has an official top-level collection. Relations use a closed allowlist
 per parent resource. See [API support](api-support.md) for the exact mappings.
 
-Collection and relation commands accept:
+`front list` accepts `--limit` and `--page-token` only when the resource's
+official top-level endpoint documents those parameters. See the resource table
+in [API support](api-support.md). Supplying either structured flag for an
+unsupported collection exits with status 1 and an `INVALID_INPUT` envelope
+whose command uses the canonical singular resource name; validation happens
+before configuration or token resolution.
+
+Supported collection commands and all relation commands accept:
 
 - `--limit <number>` (1 through 100);
 - `--page-token <token>`;
-- repeatable `--param <key=value>` values.
+
+Every collection and relation command accepts repeatable `--param <key=value>`
+values. This generic gateway remains available even for collection parameters
+that do not have a structured flag.
 
 `front get` accepts repeatable `--param <key=value>` values. Parameters split
 on the first `=` and are URL encoded as structured query pairs.

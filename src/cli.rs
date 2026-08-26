@@ -163,9 +163,11 @@ pub fn prepare_read_request(command: &Commands) -> Result<Option<ReadRequest>, R
         },
         Commands::List(args) => {
             let resource = Resource::parse(&args.resource)?;
+            let segments = resource.collection_segments()?;
+            validate_collection_query(resource, &args.query)?;
             ReadRequest {
                 command: format!("front list {}", resource.name()),
-                segments: resource.collection_segments()?,
+                segments,
                 query: build_query(&args.query)?,
                 pagination_command: Some(format!("front list {}", resource.name())),
             }
@@ -205,6 +207,23 @@ pub fn prepare_read_request(command: &Commands) -> Result<Option<ReadRequest>, R
         | Commands::Completion(_) => return Ok(None),
     };
     Ok(Some(request))
+}
+
+fn validate_collection_query(resource: Resource, args: &QueryArgs) -> Result<(), ResourceError> {
+    let capabilities = resource.collection_query_capabilities();
+    if args.limit.is_some() && !capabilities.limit {
+        return Err(ResourceError::UnsupportedCollectionQueryParameter {
+            resource: resource.name(),
+            parameter: "--limit",
+        });
+    }
+    if args.page_token.is_some() && !capabilities.page_token {
+        return Err(ResourceError::UnsupportedCollectionQueryParameter {
+            resource: resource.name(),
+            parameter: "--page-token",
+        });
+    }
+    Ok(())
 }
 
 fn build_query(args: &QueryArgs) -> Result<Vec<(String, String)>, ResourceError> {

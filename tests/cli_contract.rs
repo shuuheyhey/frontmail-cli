@@ -270,6 +270,54 @@ fn malformed_query_parameter_is_rejected_before_authentication() {
 }
 
 #[test]
+fn unsupported_collection_pagination_flags_are_rejected_before_authentication() {
+    let resources = [
+        ("channels", "channel"),
+        ("inboxes", "inbox"),
+        ("knowledge-bases", "knowledge-base"),
+        ("message-templates", "message-template"),
+        ("message-template-folders", "message-template-folder"),
+        ("rules", "rule"),
+        ("shifts", "shift"),
+        ("teammates", "teammate"),
+        ("teammate-groups", "teammate-group"),
+        ("teams", "team"),
+    ];
+    let flags = [("--limit", "2"), ("--page-token", "next")];
+
+    for (resource, canonical_resource) in resources {
+        for (flag, value) in flags {
+            let dir = tempdir().unwrap();
+            let output = cargo_bin_cmd!("front")
+                .args(["list", resource, flag, value])
+                .env("HOME", dir.path())
+                .env("XDG_CONFIG_HOME", dir.path())
+                .env_remove("FRONT_API_TOKEN")
+                .output()
+                .unwrap();
+
+            let case = format!("front list {resource} {flag} {value}");
+            assert_eq!(output.status.code(), Some(1), "{case}");
+            assert!(output.stderr.is_empty(), "{case}");
+            let actual: Value = serde_json::from_slice(&output.stdout)
+                .unwrap_or_else(|error| panic!("{case} must emit one JSON document: {error}"));
+            assert_eq!(
+                actual["command"],
+                format!("front list {canonical_resource}"),
+                "{case}"
+            );
+            assert_eq!(actual["error"]["code"], "INVALID_INPUT", "{case}");
+            assert!(
+                actual["error"]["message"]
+                    .as_str()
+                    .is_some_and(|message| message.contains(flag)),
+                "{case}"
+            );
+        }
+    }
+}
+
+#[test]
 #[cfg(not(target_os = "windows"))]
 fn authentication_failures_report_the_requested_command() {
     let whoami_dir = tempdir().unwrap();
