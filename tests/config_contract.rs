@@ -349,13 +349,33 @@ fn zero_profiles_preserves_the_legacy_no_token_result() {
 #[test]
 fn selected_profile_token_command_preserves_an_argument_with_spaces() {
     #[cfg(target_os = "windows")]
-    let token_command = &["cmd", "/C", "echo", "profile token with spaces"];
+    let (_script_dir, token_command) = {
+        let script_dir = tempfile::tempdir().unwrap();
+        let script = script_dir.path().join("print-token.ps1");
+        fs::write(
+            &script,
+            "param([string]$Value)\n[Console]::Out.Write($Value)\n",
+        )
+        .unwrap();
+        let command = vec![
+            "powershell.exe".into(),
+            "-NoProfile".into(),
+            "-NonInteractive".into(),
+            "-File".into(),
+            script.to_string_lossy().into_owned(),
+            "profile token with spaces".into(),
+        ];
+        (script_dir, command)
+    };
     #[cfg(not(target_os = "windows"))]
-    let token_command = &["printf", "profile token with spaces\\n"];
+    let token_command = vec!["printf".into(), "profile token with spaces\\n".into()];
     let config = Config {
         profiles: BTreeMap::from([(
             "work".into(),
-            profile(token_command, "profile-user@example.invalid"),
+            Profile {
+                token_command,
+                user: "profile-user@example.invalid".into(),
+            },
         )]),
         ..Config::default()
     };
