@@ -13,6 +13,7 @@ structured parameter descriptions.
 |---|---|
 | `front` | Return available commands and parameters |
 | `front config` | Show config path, user, and redacted token-command state |
+| `front doctor` | Run redacted authentication and read-scope diagnostics |
 | `front inboxes` | List all accessible inboxes or those for `FRONT_USER` |
 | `front inbox [inbox-id]` | Search conversations, optionally in one inbox |
 | `front read <conversation-id>` | Read a compact conversation and its messages |
@@ -48,6 +49,30 @@ When `--assignee` is used without an explicit query, the default changes to
 
 `front read` requests the conversation and up to 25 messages. Each message body
 is truncated at a valid UTF-8 boundary at or below 500 bytes.
+
+## Redacted diagnostics
+
+`front doctor` resolves configuration and the token once, then performs only
+GET requests. It first calls `/me`; an authentication failure uses the normal
+top-level failure envelope. After authentication succeeds, it checks:
+
+- `/tags?limit=1`;
+- `/inboxes`;
+- `/teammates`.
+
+Each optional read check reports `ok`, `forbidden` for HTTP 403, or `error` for
+any other failure. One failed optional check does not prevent the remaining
+checks from running.
+
+When an effective user is configured, the command also GETs
+`/teammates/alt:email:<URL-encoded-user>` and compares its ID with `/me` only in
+memory. `configured_user_matches_token` is the boolean `true` or `false` when
+both IDs are available, `unavailable` when they cannot be compared, and
+`not_configured` when there is no effective user.
+
+The success result contains only fixed diagnostic strings, booleans, and source
+names. It never serializes the token, token-command arguments, effective user,
+resource IDs, response bodies, Front-provided error messages, or customer data.
 
 ## Resource-oriented reads
 

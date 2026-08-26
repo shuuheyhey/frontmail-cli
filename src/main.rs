@@ -5,7 +5,8 @@ use frontmail_cli::{
     cli::{Cli, Commands, prepare_read_request},
     client::{ClientError, FrontClient, classify_http},
     commands::{
-        CommandError, InboxOptions, ReadRequest, execute_read, inbox_json, inboxes_json, read_json,
+        CommandError, InboxOptions, ReadRequest, doctor_json, execute_read, inbox_json,
+        inboxes_json, read_json,
     },
     config, envelope,
     resources::ResourceError,
@@ -148,6 +149,19 @@ async fn run_api_command(
         (command_name, execute_read(&client, request).await)
     } else {
         match command {
+            Commands::Doctor => {
+                let user = config::resolve_user(&loaded, &env);
+                (
+                    "front doctor".into(),
+                    doctor_json(
+                        &client,
+                        config::token_source(&loaded, &env),
+                        config::user_source(&loaded, &env),
+                        &user,
+                    )
+                    .await,
+                )
+            }
             Commands::Inboxes => {
                 let user = config::resolve_user(&loaded, &env);
                 ("front inboxes".into(), inboxes_json(&client, &user).await)
@@ -190,6 +204,7 @@ async fn run_api_command(
 fn command_name(command: &Commands) -> &'static str {
     match command {
         Commands::Config => "front config",
+        Commands::Doctor => "front doctor",
         Commands::Inboxes => "front inboxes",
         Commands::Inbox(_) => "front inbox",
         Commands::Read(_) => "front read",

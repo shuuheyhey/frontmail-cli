@@ -40,6 +40,12 @@ API commands. It also reports non-secret source fields with these exact values:
 An empty environment variable falls back to the next source. The source report
 only identifies the selected source; it never resolves a token command.
 
+`front doctor` uses the same effective token and user selection. Its redacted
+success result includes `token_source` and `configured_user_source`, but never
+the selected token, token-command arguments, or effective user value. Unlike
+`front config`, diagnostics resolve the token and perform the read-only network
+checks documented in [Command reference](commands.md#redacted-diagnostics).
+
 ## Config file format
 
 ```yaml

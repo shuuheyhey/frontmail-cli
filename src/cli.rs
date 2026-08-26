@@ -19,6 +19,8 @@ pub struct Cli {
 pub enum Commands {
     /// Show CLI configuration
     Config,
+    /// Run redacted authentication and read-scope diagnostics
+    Doctor,
     /// List all inboxes
     Inboxes,
     /// Search conversations
@@ -201,6 +203,7 @@ pub fn prepare_read_request(command: &Commands) -> Result<Option<ReadRequest>, R
             }
         }
         Commands::Config
+        | Commands::Doctor
         | Commands::Inboxes
         | Commands::Inbox(_)
         | Commands::Read(_)

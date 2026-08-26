@@ -55,6 +55,39 @@ fields. `token_source` is one of `environment`, `token_command`, or `none`.
 literal `(configured)`; the executable, its arguments, and token values are
 never included.
 
+## Doctor result
+
+`front doctor` returns the normal success envelope with a redacted diagnostic
+result:
+
+```json
+{
+  "ok": true,
+  "command": "front doctor",
+  "result": {
+    "token_source": "environment",
+    "authentication": "ok",
+    "configured_user_source": "config",
+    "configured_user_matches_token": true,
+    "checks": {
+      "tags_read": "ok",
+      "inboxes_read": "forbidden",
+      "teammates_read": "error"
+    }
+  }
+}
+```
+
+`authentication` is `ok` in a success result because `/me` failures remain
+top-level failures. Each optional read check is `ok`, `forbidden`, or `error`.
+`configured_user_matches_token` is `true`, `false`, `unavailable`, or
+`not_configured`. The two boolean states are JSON booleans; the unavailable
+states are strings.
+
+Doctor success output never includes API response bodies, Front-provided error
+messages, token values, token-command arguments, effective user values,
+resource IDs, or customer data.
+
 ## Generic read results
 
 `front whoami`, `front list`, `front get`, `front related`, and
@@ -120,4 +153,5 @@ before configuration resolution and before any HTTP request.
 Resolved tokens are never part of success output, error output, URLs, query
 parameters, debug representations, or `front config`. `front config` does not
 execute `token_command`. API error messages may still contain Front-provided
-text, so redact output before sharing it.
+text in normal top-level failures, so redact output before sharing it. Doctor
+success output always replaces optional API errors with fixed status strings.

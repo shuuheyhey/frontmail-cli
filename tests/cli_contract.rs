@@ -48,6 +48,7 @@ fn root_prints_the_agent_friendly_command_catalog() {
         commands,
         [
             "front config",
+            "front doctor",
             "front inbox [inbox-id]",
             "front inboxes",
             "front read <conversation-id>",
@@ -59,6 +60,27 @@ fn root_prints_the_agent_friendly_command_catalog() {
             "front completion <shell>",
         ]
     );
+}
+
+#[test]
+#[cfg(not(target_os = "windows"))]
+fn doctor_without_a_token_reports_the_canonical_command() {
+    let dir = tempdir().unwrap();
+    let (mut command, _) = isolated_config_command(dir.path());
+
+    let output = command
+        .arg("doctor")
+        .env_remove("FRONT_API_TOKEN")
+        .env_remove("FRONT_USER")
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.code(), Some(1));
+    assert!(output.stderr.is_empty());
+    let actual: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(actual["ok"], false);
+    assert_eq!(actual["command"], "front doctor");
+    assert_eq!(actual["error"]["code"], "UNAUTHORIZED");
 }
 
 #[test]

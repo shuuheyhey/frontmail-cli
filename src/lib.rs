@@ -27,6 +27,11 @@ pub fn root_json() -> serde_json::Result<String> {
                 params: BTreeMap::new(),
             },
             Action {
+                command: "front doctor".into(),
+                description: "Run redacted authentication and read-scope diagnostics".into(),
+                params: BTreeMap::new(),
+            },
+            Action {
                 command: "front inbox [inbox-id]".into(),
                 description: "Search conversations".into(),
                 params: inbox_params(),

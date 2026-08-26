@@ -15,6 +15,8 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 - Contract tests, contributor documentation, and read-only CI checks.
 - Effective configuration source reporting in `front config` without resolving
   or exposing token commands.
+- Redacted `front doctor` authentication, configured-user, and optional
+  read-scope diagnostics using GET requests only.
 
 ### Changed
 
