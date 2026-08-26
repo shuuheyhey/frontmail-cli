@@ -51,6 +51,7 @@ async fn read_fetches_conversation_and_messages_and_truncates_utf8_safely() {
                 "id": "msg_chat",
                 "author": null,
                 "recipients": [
+                    {"name": "Wrong Role Visitor", "handle": "visitor-wrong-role", "role": "From"},
                     {"name": "Visitor", "handle": "visitor-123", "role": "from"},
                     {"name": "Support", "handle": "support", "role": "to"}
                 ],
